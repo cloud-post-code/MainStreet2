@@ -264,12 +264,10 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
     db.from('categories').select('id, name').order('name'),
   ])
 
-  const mapped = (products ?? []).map(p => ({
+  const mapped = (products ?? []).map(({ businesses, categories, ...p }) => ({
     ...p,
-    business: Array.isArray(p.businesses) ? p.businesses[0] ?? null : p.businesses ?? null,
-    businesses: undefined,
-    category: Array.isArray(p.categories) ? p.categories[0] ?? null : p.categories ?? null,
-    categories: undefined,
+    business: Array.isArray(businesses) ? businesses[0] ?? null : businesses ?? null,
+    category: Array.isArray(categories) ? categories[0] ?? null : categories ?? null,
     updated_at: p.updated_at ?? new Date().toISOString(),
     availability: p.availability ?? 'unknown',
     status: p.status ?? 'active',

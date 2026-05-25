@@ -219,6 +219,7 @@ export default function Home() {
             <div className="header-nav">
               <a href="/history" className="nav-link">History</a>
               <a href="/inbox" className="nav-link">Inbox</a>
+              <a href="/profile" className="nav-link">Profile</a>
             </div>
           </header>
           <div className="card-wrap">
@@ -267,6 +268,7 @@ export default function Home() {
           <div className="header-nav">
             <a href="/history" className="nav-link">History</a>
             <a href="/inbox" className="nav-link">Inbox</a>
+            <a href="/profile" className="nav-link">Profile</a>
           </div>
         </header>
         <div className="chat-layout">

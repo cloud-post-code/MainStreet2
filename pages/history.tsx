@@ -66,6 +66,7 @@ export default function HistoryPage() {
         <nav className="tab-bar">
           <a href="/history" className="tab tab-active">Chat History</a>
           <a href="/inbox" className="tab">Inbox</a>
+          <a href="/profile" className="tab">Profile</a>
         </nav>
         <div className="list-wrap">
           {loading && (

@@ -6,6 +6,7 @@ const nextConfig = {
       { protocol: 'https', hostname: '**' },
     ],
   },
+  serverExternalPackages: ['playwright', 'playwright-core', 'fsevents'],
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Anthropic SDK 0.98+ includes node: builtins that webpack doesn't handle.
@@ -15,6 +16,10 @@ const nextConfig = {
         ({ request }, callback) => {
           if (request && request.startsWith('node:')) {
             return callback(null, `commonjs ${request.slice(5)}`)
+          }
+          // playwright and fsevents are server-only (scraper)
+          if (request && (request === 'playwright' || request === 'playwright-core' || request === 'fsevents')) {
+            return callback(null, `commonjs ${request}`)
           }
           callback()
         },

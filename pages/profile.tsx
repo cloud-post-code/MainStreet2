@@ -242,7 +242,7 @@ const styles = `
 
   /* Sections */
   .section { display: flex; flex-direction: column; gap: 10px; }
-  .section-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .section-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 
   /* Link list */
   .link-list { display: flex; flex-direction: column; gap: 6px; }

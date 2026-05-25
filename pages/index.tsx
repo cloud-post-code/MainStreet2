@@ -308,8 +308,8 @@ export default function Home() {
                                 {msg.products.map(p => (
                                   <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="product-card">
                                     <div className="card-img">
-                                      {p.image_url
-                                        ? <img src={p.image_url} alt={p.name} />
+                                      {(p.image_urls?.[0] ?? p.image_url)
+                                        ? <img src={p.image_urls?.[0] ?? p.image_url!} alt={p.name} />
                                         : <span>🛍️</span>}
                                     </div>
                                     <div className="card-shop">{p.business_name}</div>

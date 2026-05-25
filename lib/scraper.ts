@@ -1,23 +1,14 @@
 import { chromium } from 'playwright'
 import { getSupabaseClient } from './supabase'
 import { sanitizeProductText } from './scraper-sanitize'
-import type { ScrapeDiff } from './types'
-
-export const STALE_THRESHOLD_DAYS = 7
+import type { ScrapeDiff, RawProduct } from './types'
+export { STALE_THRESHOLD_DAYS, type RawProduct } from './types'
 const DOMAIN_DELAY_MS = 2000
 
 export interface ScrapeTarget {
   businessId: string
   businessName: string
   urls: string[]
-}
-
-export interface RawProduct {
-  name: string
-  price: number
-  url: string
-  imageUrls: string[]
-  description?: string
 }
 
 export interface ScrapeOptions {

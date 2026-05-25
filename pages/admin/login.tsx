@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
+import Link from 'next/link'
 
 export default function AdminLogin() {
   const router = useRouter()
@@ -31,6 +32,7 @@ export default function AdminLogin() {
     <>
       <Head><title>Admin Login — Main Street</title></Head>
       <div style={styles.page}>
+        <Link href="/" style={styles.backLink}>← Back to Main Street</Link>
         <div style={styles.card}>
           <div style={styles.logo}>Main Street Admin</div>
           <form onSubmit={handleSubmit} style={styles.form}>
@@ -67,10 +69,17 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 20,
     background: '#f7f7f5',
     fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif",
+  },
+  backLink: {
+    color: '#6b7280',
+    fontSize: 14,
+    textDecoration: 'none',
   },
   card: {
     background: '#fff',

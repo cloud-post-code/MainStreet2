@@ -50,6 +50,7 @@ export default function AdminLayout({ children, title }: Props) {
               )
             })}
           </ul>
+          <Link href="/" style={styles.viewSite}>← View site</Link>
           <button onClick={() => signOut({ callbackUrl: '/admin/login' })} style={styles.signOut}>
             Sign out
           </button>
@@ -114,8 +115,16 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '2px 6px',
     letterSpacing: '0.04em',
   },
-  signOut: {
+  viewSite: {
+    display: 'block',
     margin: '16px 24px 0',
+    padding: '8px 0',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    textDecoration: 'none',
+  },
+  signOut: {
+    margin: '8px 24px 0',
     padding: '8px 16px',
     background: 'transparent',
     border: '1px solid rgba(255,255,255,0.25)',

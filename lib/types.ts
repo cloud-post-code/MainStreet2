@@ -81,3 +81,11 @@ export interface PreferenceSignal {
   product_name: string | null
   created_at: string
 }
+
+export interface ScrapeDiff {
+  added: number
+  priceChanges: Array<{ name: string; oldPrice: number; newPrice: number }>
+  removed: number
+}
+
+export type ScrapeStatus = 'never' | 'running' | 'success' | 'error' | 'cancelled'

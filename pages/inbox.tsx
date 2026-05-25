@@ -220,7 +220,6 @@ export default function InboxPage() {
             Inbox
             {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}
           </a>
-          <a href="/profile" className="tab">Profile</a>
         </nav>
         <div className="list-wrap">
           {loading && (

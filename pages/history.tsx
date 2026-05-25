@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
+import { useSession } from 'next-auth/react'
 import type { ConversationRow, MessageParam } from '../lib/types'
 
 function formatDate(iso: string): string {
@@ -19,6 +20,8 @@ function getSessionSummary(messages: MessageParam[]): string {
 }
 
 export default function HistoryPage() {
+  const { status: authStatus } = useSession()
+  const isAuthenticated = authStatus === 'authenticated'
   const [sessions, setSessions] = useState<ConversationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [continuingId, setContinuingId] = useState<string | null>(null)
@@ -74,7 +77,16 @@ export default function HistoryPage() {
               {[1,2,3].map(i => <div key={i} className="skeleton-row" />)}
             </div>
           )}
-          {!loading && sessions.length === 0 && (
+          {!loading && !isAuthenticated && (
+            <div className="empty-state">
+              <div className="empty-icon">🧱</div>
+              <div className="empty-title">Sign in to save your history</div>
+              <div className="empty-sub">Create a free account and your conversations will be saved across all your devices.</div>
+              <a href="/signup" className="empty-cta">Create account →</a>
+              <a href="/login" className="empty-cta-secondary">Sign in</a>
+            </div>
+          )}
+          {!loading && isAuthenticated && sessions.length === 0 && (
             <div className="empty-state">
               <div className="empty-icon">🧱</div>
               <div className="empty-title">No conversations yet</div>
@@ -119,18 +131,18 @@ const styles = `
     --secondary: #be6e46;
     --cream: #f1e9d8;
     --accent: #7a9e7e;
-    --muted: #9aaa88;
+    --muted: #5c6e52;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: radial-gradient(ellipse at 50% 30%, #f2ede4 0%, #f7f7f5 70%); color: var(--text); font-family: 'DM Sans', 'Helvetica Neue', sans-serif; }
   .page { min-height: 100vh; display: flex; flex-direction: column; }
 
   .header { padding: 16px 40px; display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid rgba(1,82,55,0.1); }
-  .logo { font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--primary); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; background: none; border: none; padding: 0; }
+  .logo { font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--primary); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; background: none; border: none; padding: 10px 0; min-height: 44px; display: inline-flex; align-items: center; }
   .tagline { font-size: 13px; color: var(--muted); font-style: italic; }
 
   .tab-bar { display: flex; border-bottom: 1px solid rgba(1,82,55,0.1); padding: 0 40px; gap: 0; }
-  .tab { padding: 12px 20px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; }
+  .tab { padding: 12px 20px; min-height: 44px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; }
   .tab-active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
   .tab:hover:not(.tab-active) { color: var(--text); }
   .unread-badge { background: var(--secondary); color: white; font-size: 11px; font-weight: 700; border-radius: 9999px; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }

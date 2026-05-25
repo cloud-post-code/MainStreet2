@@ -267,18 +267,18 @@ const styles = `
     --secondary: #be6e46;
     --cream: #f1e9d8;
     --accent: #7a9e7e;
-    --muted: #9aaa88;
+    --muted: #5c6e52;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: radial-gradient(ellipse at 50% 30%, #f2ede4 0%, #f7f7f5 70%); color: var(--text); font-family: 'DM Sans', 'Helvetica Neue', sans-serif; }
   .page { min-height: 100vh; display: flex; flex-direction: column; }
 
   .header { padding: 16px 40px; display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid rgba(1,82,55,0.1); }
-  .logo { font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--primary); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; background: none; border: none; padding: 0; }
+  .logo { font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--primary); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; background: none; border: none; padding: 10px 0; min-height: 44px; display: inline-flex; align-items: center; }
   .tagline { font-size: 13px; color: var(--muted); font-style: italic; }
 
   .tab-bar { display: flex; border-bottom: 1px solid rgba(1,82,55,0.1); padding: 0 40px; }
-  .tab { padding: 12px 20px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; }
+  .tab { padding: 12px 20px; min-height: 44px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; }
   .tab-active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
   .tab:hover:not(.tab-active) { color: var(--text); }
   .unread-badge { background: var(--secondary); color: white; font-size: 11px; font-weight: 700; border-radius: 9999px; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }

@@ -214,7 +214,7 @@ const styles = `
   .tagline { font-size: 13px; color: var(--muted); font-style: italic; }
 
   .tab-bar { display: flex; border-bottom: 1px solid rgba(1,82,55,0.1); padding: 0 40px; }
-  .tab { padding: 12px 20px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab { padding: 12px 20px; min-height: 44px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; }
   .tab-active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
   .tab:hover:not(.tab-active) { color: var(--text); }
 

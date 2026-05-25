@@ -239,6 +239,7 @@ export default function Home() {
             <div className="header-nav">
               <a href="/history" className="nav-link">History</a>
               <a href="/inbox" className="nav-link">Inbox</a>
+              <a href="/profile" className="nav-link">Profile</a>
               {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
               {isAuthenticated
                 ? <a href="/account" className="nav-link nav-link-account">{authUser?.name ?? 'Account'}</a>
@@ -292,6 +293,7 @@ export default function Home() {
           <div className="header-nav">
             <a href="/history" className="nav-link">History</a>
             <a href="/inbox" className="nav-link">Inbox</a>
+            <a href="/profile" className="nav-link">Profile</a>
             {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
           </div>
         </header>

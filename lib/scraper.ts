@@ -16,7 +16,7 @@ export interface RawProduct {
   name: string
   price: number
   url: string
-  imageUrl?: string
+  imageUrls: string[]
   description?: string
 }
 
@@ -60,12 +60,15 @@ export async function scrapeShopPage(url: string, opts: ScrapeOptions = {}): Pro
       nodes.slice(0, 50).map(node => {
         const nameEl = node.querySelector('[class*="title"], [class*="name"], h2, h3')
         const priceEl = node.querySelector('[class*="price"]')
-        const imgEl = node.querySelector('img')
         const linkEl = node.querySelector('a')
+        const imgEls = Array.from(node.querySelectorAll('img'))
+        const imageUrls = imgEls
+          .map(img => img.getAttribute('src') ?? img.getAttribute('data-src') ?? img.getAttribute('data-lazy-src') ?? '')
+          .filter(Boolean)
         return {
           name: nameEl?.textContent?.trim() ?? '',
           price: priceEl?.textContent?.trim() ?? '',
-          imageUrl: imgEl?.getAttribute('src') ?? imgEl?.getAttribute('data-src') ?? '',
+          imageUrls,
           url: linkEl?.href ?? '',
         }
       })
@@ -79,7 +82,7 @@ export async function scrapeShopPage(url: string, opts: ScrapeOptions = {}): Pro
         name: item.name,
         price: priceNum,
         url: item.url,
-        imageUrl: item.imageUrl || undefined,
+        imageUrls: item.imageUrls,
       })
     }
 
@@ -149,7 +152,8 @@ export async function scrapeAndUpsert(
           log(`~ price: ${cleanName} $${existing.price} → $${product.price}`)
         }
 
-        await supabase.from('products').upsert(
+        const primaryImage = product.imageUrls[0] ?? null
+        const { data: upserted_row, error: upsertErr } = await supabase.from('products').upsert(
           {
             business_id: target.businessId,
             business_name: target.businessName,
@@ -157,12 +161,23 @@ export async function scrapeAndUpsert(
             description: cleanDesc || null,
             price: product.price,
             url: product.url,
-            image_url: product.imageUrl ?? null,
+            image_url: primaryImage,
             embedding,
             last_seen: new Date().toISOString(),
           },
           { onConflict: 'url' }
-        )
+        ).select('id').single()
+
+        if (!upsertErr && upserted_row && product.imageUrls.length > 0) {
+          await supabase.from('product_images').delete().eq('product_id', upserted_row.id)
+          await supabase.from('product_images').insert(
+            product.imageUrls.map((imgUrl, idx) => ({
+              product_id: upserted_row.id,
+              image_url: imgUrl,
+              display_order: idx,
+            }))
+          )
+        }
         upserted++
       } catch (err) {
         log(`ERROR: embed/upsert failed for ${product.url}: ${err}`)

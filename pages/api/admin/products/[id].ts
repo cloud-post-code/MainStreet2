@@ -25,6 +25,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updates[key] = val
       }
     }
+
+    // If image_urls array provided, sync product_images and set primary image_url
+    if (Array.isArray(req.body.image_urls)) {
+      const imageList: string[] = req.body.image_urls.filter((u: string) => u?.trim())
+      updates.image_url = imageList[0] ?? null
+      await db.from('product_images').delete().eq('product_id', id)
+      if (imageList.length > 0) {
+        await db.from('product_images').insert(
+          imageList.map((imgUrl, idx) => ({ product_id: id, image_url: imgUrl, display_order: idx }))
+        )
+      }
+    }
+
     updates.updated_at = new Date().toISOString()
 
     const { data, error } = await db.from('products').update(updates).eq('id', id).select('id').single()

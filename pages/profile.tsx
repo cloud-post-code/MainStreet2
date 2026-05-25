@@ -196,7 +196,7 @@ const styles = `
   .page { min-height: 100vh; display: flex; flex-direction: column; }
 
   .header { padding: 16px 40px; display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid rgba(1,82,55,0.1); }
-  .logo { font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--primary); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; background: none; border: none; padding: 0; }
+  .logo { font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--primary); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; background: none; border: none; padding: 10px 0; min-height: 44px; display: inline-flex; align-items: center; }
   .tagline { font-size: 13px; color: var(--muted); font-style: italic; }
 
   .tab-bar { display: flex; border-bottom: 1px solid rgba(1,82,55,0.1); padding: 0 40px; }
@@ -260,7 +260,7 @@ const styles = `
   /* Privacy */
   .privacy-section { background: white; border: 1px solid rgba(122,158,126,0.2); border-radius: 10px; padding: 18px 20px; gap: 12px; }
   .privacy-text { font-size: 13px; color: var(--muted); line-height: 1.6; }
-  .clear-btn { background: none; border: 1px solid rgba(190,110,70,0.4); border-radius: 6px; padding: 8px 16px; font-size: 13px; color: var(--secondary); cursor: pointer; align-self: flex-start; }
+  .clear-btn { background: none; border: 1px solid rgba(190,110,70,0.4); border-radius: 6px; padding: 11px 16px; font-size: 13px; color: var(--secondary); cursor: pointer; align-self: flex-start; min-height: 44px; }
   .clear-btn:hover { background: rgba(190,110,70,0.06); }
 
   @media (max-width: 640px) {

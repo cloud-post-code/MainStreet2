@@ -12,7 +12,7 @@ interface Props {
 const NAV = [
   { href: '/admin/companies', label: 'Companies', active: true },
   { href: '/admin/products', label: 'Products', active: true },
-  { href: '#', label: 'Scrapers', active: false },
+  { href: '/admin/scraper', label: 'Scraper', active: true },
   { href: '#', label: 'Orders', active: false },
 ]
 

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import AdminLayout from '../../../components/admin/AdminLayout'
 import { requireAdminSession } from '../../../lib/admin/auth'
 import { getAdminClient } from '../../../lib/admin/supabase-admin'
+import type { ScrapeStatus } from '../../../lib/types'
 
 interface Category { id: string; name: string }
 interface Company {
@@ -17,6 +18,8 @@ interface Company {
   category?: { name: string }
   product_count: number
   updated_at: string
+  last_scraped: string | null
+  scrape_status: ScrapeStatus
 }
 
 interface Props {
@@ -57,6 +60,17 @@ export default function CompaniesIndex({ companies, categories, towns }: Props) 
   const [filterTown, setFilterTown] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [scrapingIds, setScrapingIds] = useState<Set<string>>(new Set())
+
+  async function runScrape(id: string) {
+    setScrapingIds(prev => new Set([...prev, id]))
+    await fetch('/api/admin/scraper/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId: id }),
+    })
+    setScrapingIds(prev => { const s = new Set(prev); s.delete(id); return s })
+  }
 
   const filtered = companies.filter(c => {
     if (filterTown && c.town !== filterTown) return false
@@ -112,7 +126,7 @@ export default function CompaniesIndex({ companies, categories, towns }: Props) 
           <table style={styles.table}>
             <thead>
               <tr>
-                {['Name', 'Town', 'Category', 'Status', 'Verification', 'Products', 'Last Updated', ''].map(h => (
+                {['Name', 'Town', 'Category', 'Status', 'Verification', 'Products', 'Last Scraped', 'Updated', ''].map(h => (
                   <th key={h} style={styles.th}>{h}</th>
                 ))}
               </tr>
@@ -140,8 +154,18 @@ export default function CompaniesIndex({ companies, categories, towns }: Props) 
                     }}>{VERIF_LABELS[c.verification_status] ?? c.verification_status}</span>
                   </td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>{c.product_count}</td>
-                  <td style={styles.td}>{new Date(c.updated_at).toLocaleDateString()}</td>
                   <td style={styles.td}>
+                    {c.last_scraped ? new Date(c.last_scraped).toLocaleDateString() : <span style={{ color: '#d1d5db' }}>Never</span>}
+                  </td>
+                  <td style={styles.td}>{new Date(c.updated_at).toLocaleDateString()}</td>
+                  <td style={{ ...styles.td, display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      onClick={() => runScrape(c.id)}
+                      disabled={scrapingIds.has(c.id) || c.scrape_status === 'running'}
+                      style={{ ...styles.scrapeBtn, opacity: scrapingIds.has(c.id) ? 0.6 : 1 }}
+                    >
+                      {scrapingIds.has(c.id) ? '…' : 'Scrape'}
+                    </button>
                     <Link href={`/admin/companies/${c.id}/edit`} style={styles.editLink}>Edit</Link>
                   </td>
                 </tr>
@@ -161,7 +185,7 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
   const db = getAdminClient()
   const [{ data: businesses }, { data: categories }] = await Promise.all([
     db.from('businesses')
-      .select('id, name, url, town, status, verification_status, category_id, updated_at, categories(name)')
+      .select('id, name, url, town, status, verification_status, category_id, updated_at, last_scraped, scrape_status, categories(name)')
       .order('updated_at', { ascending: false }),
     db.from('categories').select('id, name').order('name'),
   ])
@@ -177,14 +201,15 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
     countMap[p.business_id] = (countMap[p.business_id] ?? 0) + 1
   })
 
-  const companies = (businesses ?? []).map(b => ({
+  const companies = (businesses ?? []).map(({ categories, ...b }) => ({
     ...b,
-    category: Array.isArray(b.categories) ? b.categories[0] ?? null : b.categories ?? null,
-    categories: undefined,
+    category: Array.isArray(categories) ? categories[0] ?? null : categories ?? null,
     product_count: countMap[b.id] ?? 0,
     updated_at: b.updated_at ?? new Date().toISOString(),
     status: b.status ?? 'active',
     verification_status: b.verification_status ?? 'pending_review',
+    last_scraped: b.last_scraped ?? null,
+    scrape_status: (b.scrape_status ?? 'never') as ScrapeStatus,
   }))
 
   const towns = [...new Set(companies.map(c => c.town))].sort()
@@ -253,6 +278,7 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'capitalize',
   },
   editLink: { color: '#6b7280', fontSize: 13, textDecoration: 'none' },
+  scrapeBtn: { fontSize: 12, padding: '3px 10px', background: '#015237', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 500 },
   empty: {
     background: '#fff',
     borderRadius: 12,

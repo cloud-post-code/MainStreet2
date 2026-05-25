@@ -150,13 +150,13 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
     .eq('id', id)
     .single()
   if (error || !company) return { notFound: true }
+  const { categories, ...rest } = company
   return {
     props: {
       company: {
-        ...company,
-        category: Array.isArray(company.categories) ? company.categories[0] ?? null : company.categories ?? null,
-        categories: undefined,
-        products: company.products ?? [],
+        ...rest,
+        category: Array.isArray(categories) ? categories[0] ?? null : categories ?? null,
+        products: rest.products ?? [],
       },
     },
   }

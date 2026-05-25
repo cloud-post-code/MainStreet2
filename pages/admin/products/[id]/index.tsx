@@ -103,15 +103,16 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
     : product.image_url ? [product.image_url] : []
   return {
     props: {
-      product: {
-        ...product,
-        image_urls: imageUrls,
-        business: Array.isArray(product.businesses) ? product.businesses[0] ?? null : product.businesses ?? null,
-        businesses: undefined,
-        category: Array.isArray(product.categories) ? product.categories[0] ?? null : product.categories ?? null,
-        categories: undefined,
-        updated_at: product.updated_at ?? new Date().toISOString(),
-      },
+      product: (() => {
+        const { businesses, categories, ...rest } = product
+        return {
+          ...rest,
+          image_urls: imageUrls,
+          business: Array.isArray(businesses) ? businesses[0] ?? null : businesses ?? null,
+          category: Array.isArray(categories) ? categories[0] ?? null : categories ?? null,
+          updated_at: rest.updated_at ?? new Date().toISOString(),
+        }
+      })(),
     },
   }
 }

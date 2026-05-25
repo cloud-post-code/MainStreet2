@@ -201,10 +201,9 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
     countMap[p.business_id] = (countMap[p.business_id] ?? 0) + 1
   })
 
-  const companies = (businesses ?? []).map(b => ({
+  const companies = (businesses ?? []).map(({ categories, ...b }) => ({
     ...b,
-    category: Array.isArray(b.categories) ? b.categories[0] ?? null : b.categories ?? null,
-    categories: undefined,
+    category: Array.isArray(categories) ? categories[0] ?? null : categories ?? null,
     product_count: countMap[b.id] ?? 0,
     updated_at: b.updated_at ?? new Date().toISOString(),
     status: b.status ?? 'active',

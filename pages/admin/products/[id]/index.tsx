@@ -6,6 +6,7 @@ import { getAdminClient } from '../../../../lib/admin/supabase-admin'
 
 interface Product {
   id: string; name: string; description: string | null; price: number; image_url: string | null
+  image_urls: string[]
   availability: string; status: string; url: string | null; sku: string | null
   business_id: string; updated_at: string
   business?: { id: string; name: string } | null
@@ -62,10 +63,17 @@ export default function ProductDetail({ product }: { product: Product }) {
             <dt style={styles.dt}>Updated</dt><dd style={styles.dd}>{new Date(product.updated_at).toLocaleString()}</dd>
           </dl>
         </div>
-        {product.image_url && (
+        {product.image_urls.length > 0 && (
           <div style={styles.card}>
-            <h2 style={styles.cardTitle}>Image</h2>
-            <img src={product.image_url} alt={product.name} style={{ maxWidth: '100%', maxHeight: 240, objectFit: 'contain', borderRadius: 8, border: '1px solid #e5e7eb' }} />
+            <h2 style={styles.cardTitle}>Images ({product.image_urls.length})</h2>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {product.image_urls.map((url, i) => (
+                <div key={i} style={{ position: 'relative' }}>
+                  <img src={url} alt={`${product.name} ${i + 1}`} style={{ width: 100, height: 100, objectFit: 'contain', borderRadius: 6, border: i === 0 ? '2px solid #015237' : '1px solid #e5e7eb' }} />
+                  {i === 0 && <span style={{ position: 'absolute', bottom: 4, left: 4, fontSize: 9, background: '#015237', color: '#fff', padding: '1px 5px', borderRadius: 3 }}>PRIMARY</span>}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -85,16 +93,19 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
   if ('redirect' in authResult) return authResult
   const { id } = ctx.params as { id: string }
   const db = getAdminClient()
-  const { data: product, error } = await db
-    .from('products')
-    .select('*, businesses(id, name), categories(name)')
-    .eq('id', id)
-    .single()
+  const [{ data: product, error }, { data: images }] = await Promise.all([
+    db.from('products').select('*, businesses(id, name), categories(name)').eq('id', id).single(),
+    db.from('product_images').select('image_url').eq('product_id', id).order('display_order'),
+  ])
   if (error || !product) return { notFound: true }
+  const imageUrls: string[] = images?.length
+    ? images.map((i: { image_url: string }) => i.image_url)
+    : product.image_url ? [product.image_url] : []
   return {
     props: {
       product: {
         ...product,
+        image_urls: imageUrls,
         business: Array.isArray(product.businesses) ? product.businesses[0] ?? null : product.businesses ?? null,
         businesses: undefined,
         category: Array.isArray(product.categories) ? product.categories[0] ?? null : product.categories ?? null,

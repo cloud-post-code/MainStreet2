@@ -12,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!session) return res.status(401).json({ error: 'Unauthorized' })
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { business_id, name, description, price, image_url, availability, category_id, sku, url, locked_fields } = req.body
+  const { business_id, name, description, price, image_url, image_urls, availability, category_id, sku, url, locked_fields } = req.body
 
   if (!business_id || !name || price === undefined || !category_id) {
     return res.status(400).json({ error: 'business_id, name, price, and category_id are required' })
@@ -23,6 +23,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'price must be a non-negative number' })
   }
 
+  // Normalize image list: prefer image_urls array, fall back to single image_url
+  const imageList: string[] = Array.isArray(image_urls)
+    ? image_urls.filter((u: string) => u?.trim())
+    : image_url ? [image_url] : []
+  const primaryImage = imageList[0] ?? null
+
   const db = getAdminClient()
   const { data, error } = await db
     .from('products')
@@ -32,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       name: stripHtml(name),
       description: description ? stripHtml(description) : null,
       price: priceNum,
-      image_url: image_url || null,
+      image_url: primaryImage,
       availability: availability ?? 'unknown',
       category_id,
       sku: sku || null,
@@ -50,6 +56,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { data: biz } = await db.from('businesses').select('name').eq('id', business_id).single()
   if (biz) {
     await db.from('products').update({ business_name: biz.name }).eq('id', data.id)
+  }
+
+  // Sync product_images
+  if (imageList.length > 0) {
+    await db.from('product_images').insert(
+      imageList.map((imgUrl, idx) => ({ product_id: data.id, image_url: imgUrl, display_order: idx }))
+    )
   }
 
   // Save field overrides

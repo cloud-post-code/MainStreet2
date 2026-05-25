@@ -35,8 +35,37 @@ export default function Home() {
   const [updatingProducts, setUpdatingProducts] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
 
-  // Check for expired session on mount
+  // Check for expired session on mount, or a ?session= param from history continuation
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const resumeId = params.get('session')
+    if (resumeId) {
+      // Load the continued session from the API and hydrate the chat UI
+      fetch('/api/history/sessions')
+        .then(r => r.json())
+        .then(data => {
+          const match = (data.sessions ?? []).find((s: { id: string; messages: Array<{ role: string; content: string | unknown[] }>; turn_count: number }) => s.id === resumeId)
+          if (match) {
+            const hydrated: ChatMessage[] = match.messages
+              .filter((m: { role: string }) => m.role === 'user' || m.role === 'assistant')
+              .map((m: { role: string; content: string | unknown[] }) => ({
+                role: m.role as MessageRole,
+                text: typeof m.content === 'string' ? m.content : '',
+              }))
+            setMessages(hydrated)
+            setTurnCount(match.turn_count)
+            setSessionId(resumeId)
+            setChatStarted(true)
+            // Store so reload doesn't lose the session
+            localStorage.setItem('ms_session', JSON.stringify({ id: resumeId, expiresAt: match.expires_at }))
+            // Clean up the URL param without a page reload
+            window.history.replaceState({}, '', '/')
+          }
+        })
+        .catch(() => { /* silently fall through to normal mount */ })
+      return
+    }
+
     const stored = localStorage.getItem('ms_session')
     if (stored) {
       try {
@@ -235,6 +264,10 @@ export default function Home() {
         <header className="header">
           <button className="logo" onClick={() => window.location.reload()}>Main Street</button>
           <div className="tagline">Your local personal shopper</div>
+          <div className="header-nav">
+            <a href="/history" className="nav-link">History</a>
+            <a href="/inbox" className="nav-link">Inbox</a>
+          </div>
         </header>
         <div className="chat-layout">
           {/* Mason sidebar */}
@@ -352,8 +385,11 @@ const styles = `
   body { background: radial-gradient(ellipse at 50% 30%, #f2ede4 0%, #f7f7f5 70%); color: var(--text); font-family: 'DM Sans', 'Helvetica Neue', sans-serif; }
 
   .page { min-height: 100vh; display: flex; flex-direction: column; }
-  .header { padding: 16px 40px; display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid rgba(1,82,55,0.1); }
+  .header { padding: 16px 40px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid rgba(1,82,55,0.1); }
   .logo { font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--primary); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; background: none; border: none; padding: 0; }
+  .header-nav { margin-left: auto; display: flex; gap: 4px; }
+  .nav-link { font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 6px; transition: background 150ms, color 150ms; }
+  .nav-link:hover { background: rgba(1,82,55,0.06); color: var(--primary); }
   .logo:hover { opacity: 0.8; }
   .tagline { font-size: 13px; color: var(--muted); font-style: italic; }
 

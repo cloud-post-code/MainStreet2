@@ -261,7 +261,7 @@ const styles = `
   .signal-body { flex: 1; font-size: 13px; color: var(--text); }
   .signal-type { font-weight: 600; color: var(--primary); }
   .signal-product { color: var(--muted); }
-  .signal-date { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .signal-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
   .signals-empty { font-size: 13px; color: var(--muted); font-style: italic; padding: 10px 0; }
 
   /* Error empty state */

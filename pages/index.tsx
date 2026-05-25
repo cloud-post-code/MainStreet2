@@ -239,10 +239,9 @@ export default function Home() {
             <div className="header-nav">
               <a href="/history" className="nav-link">History</a>
               <a href="/inbox" className="nav-link">Inbox</a>
-              <a href="/profile" className="nav-link">Profile</a>
               {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
               {isAuthenticated
-                ? <a href="/account" className="nav-link nav-link-account">{authUser?.name ?? 'Account'}</a>
+                ? <a href="/profile" className="nav-link nav-link-account">{authUser?.name ?? 'Account'}</a>
                 : <a href="/login" className="nav-link nav-link-signin">Sign in</a>
               }
             </div>
@@ -293,8 +292,11 @@ export default function Home() {
           <div className="header-nav">
             <a href="/history" className="nav-link">History</a>
             <a href="/inbox" className="nav-link">Inbox</a>
-            <a href="/profile" className="nav-link">Profile</a>
             {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
+            {isAuthenticated
+              ? <a href="/profile" className="nav-link nav-link-account">{authUser?.name ?? 'Account'}</a>
+              : <a href="/login" className="nav-link nav-link-signin">Sign in</a>
+            }
           </div>
         </header>
         <div className="chat-layout">

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSession, signOut } from 'next-auth/react'
 import Head from 'next/head'
 
 interface ProfileData {
@@ -34,6 +35,8 @@ function formatDate(iso: string): string {
 }
 
 export default function ProfilePage() {
+  const { data: session } = useSession()
+  const authUser = session?.user as { name?: string; email?: string } | undefined
   const [data, setData] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -56,7 +59,6 @@ export default function ProfilePage() {
         <nav className="tab-bar">
           <a href="/history" className="tab">Chat History</a>
           <a href="/inbox" className="tab">Inbox</a>
-          <a href="/profile" className="tab tab-active">Profile</a>
         </nav>
 
         <div className="profile-wrap">
@@ -85,11 +87,17 @@ export default function ProfilePage() {
                   </svg>
                 </div>
                 <div className="identity-info">
-                  <div className="identity-title">Your Main Street Profile</div>
-                  <div className="identity-sub">
-                    Your activity is tied to this device and browser. No account needed.
-                  </div>
+                  <div className="identity-title">{authUser?.name ?? 'Your Profile'}</div>
+                  <div className="identity-sub">{authUser?.email ?? 'Activity tied to this device and browser.'}</div>
                 </div>
+                {authUser && (
+                  <button
+                    className="signout-btn"
+                    onClick={() => signOut({ callbackUrl: '/' })}
+                  >
+                    Sign out
+                  </button>
+                )}
               </div>
 
               {/* Stats row */}
@@ -229,10 +237,13 @@ const styles = `
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 
   /* Identity card */
-  .identity-card { background: var(--cream); border-radius: 12px; padding: 20px 24px; display: flex; gap: 16px; align-items: center; border: 1px solid rgba(190,110,70,0.2); }
+  .identity-card { background: var(--cream); border-radius: 12px; padding: 20px 24px; display: flex; gap: 16px; align-items: center; border: 1px solid rgba(190,110,70,0.2); flex-wrap: wrap; }
   .avatar { width: 48px; height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: rgba(1,82,55,0.08); border-radius: 50%; }
+  .identity-info { flex: 1; min-width: 0; }
   .identity-title { font-family: Georgia, serif; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-  .identity-sub { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .identity-sub { font-size: 13px; color: #5c6e52; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .signout-btn { background: none; border: 1px solid rgba(1,82,55,0.3); border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 500; color: var(--primary); cursor: pointer; white-space: nowrap; min-height: 44px; flex-shrink: 0; }
+  .signout-btn:hover { background: rgba(1,82,55,0.06); }
 
   /* Stats */
   .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }

@@ -19,6 +19,14 @@ const nextConfig = {
           callback()
         },
       ]
+    } else {
+      // Playwright and its native deps must never be bundled for the browser.
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean)),
+        'playwright',
+        'playwright-core',
+        'fsevents',
+      ]
     }
     return config
   },

@@ -77,7 +77,13 @@ export default function ProfilePage() {
             <>
               {/* Identity card */}
               <div className="identity-card">
-                <div className="avatar">🧱</div>
+                <div className="avatar">
+                  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <circle cx="20" cy="14" r="7" fill="#015237" opacity="0.18"/>
+                    <circle cx="20" cy="13" r="6" fill="#015237" opacity="0.5"/>
+                    <path d="M6 34c0-7.732 6.268-14 14-14s14 6.268 14 14" stroke="#015237" strokeWidth="2.5" strokeLinecap="round" fill="none" opacity="0.5"/>
+                  </svg>
+                </div>
                 <div className="identity-info">
                   <div className="identity-title">Your Main Street Profile</div>
                   <div className="identity-sub">
@@ -112,7 +118,11 @@ export default function ProfilePage() {
                 <div className="section-title">Your activity</div>
                 <div className="link-list">
                   <a href="/history" className="link-row">
-                    <div className="link-icon">🕐</div>
+                    <div className="link-icon">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{color:'var(--primary)',opacity:0.7}}>
+                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                      </svg>
+                    </div>
                     <div className="link-text">
                       <div className="link-label">Chat History</div>
                       <div className="link-sub">{data?.sessionCount ?? 0} {data?.sessionCount === 1 ? 'session' : 'sessions'} · Continue where you left off</div>
@@ -120,7 +130,11 @@ export default function ProfilePage() {
                     <span className="link-arrow">→</span>
                   </a>
                   <a href="/inbox" className="link-row">
-                    <div className="link-icon">📬</div>
+                    <div className="link-icon">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{color:'var(--primary)',opacity:0.7}}>
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+                      </svg>
+                    </div>
                     <div className="link-text">
                       <div className="link-label">Inbox</div>
                       <div className="link-sub">
@@ -216,7 +230,7 @@ const styles = `
 
   /* Identity card */
   .identity-card { background: var(--cream); border-radius: 12px; padding: 20px 24px; display: flex; gap: 16px; align-items: center; border: 1px solid rgba(190,110,70,0.2); }
-  .avatar { font-size: 44px; flex-shrink: 0; }
+  .avatar { width: 48px; height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: rgba(1,82,55,0.08); border-radius: 50%; }
   .identity-title { font-family: Georgia, serif; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
   .identity-sub { font-size: 13px; color: var(--muted); line-height: 1.5; }
 
@@ -234,7 +248,7 @@ const styles = `
   .link-list { display: flex; flex-direction: column; gap: 6px; }
   .link-row { display: flex; align-items: center; gap: 14px; background: white; border: 1px solid rgba(122,158,126,0.2); border-radius: 10px; padding: 14px 18px; text-decoration: none; color: inherit; transition: box-shadow 150ms; }
   .link-row:hover { box-shadow: 0 2px 12px rgba(15,24,5,0.08); }
-  .link-icon { font-size: 22px; flex-shrink: 0; width: 32px; text-align: center; }
+  .link-icon { flex-shrink: 0; width: 32px; display: flex; align-items: center; justify-content: center; }
   .link-text { flex: 1; }
   .link-label { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
   .link-sub { font-size: 12px; color: var(--muted); }

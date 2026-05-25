@@ -285,9 +285,9 @@ const styles = `
   /* Privacy */
   .privacy-section { background: white; border: 1px solid rgba(122,158,126,0.2); border-radius: 10px; padding: 18px 20px; gap: 12px; }
   .privacy-text { font-size: 13px; color: var(--muted); line-height: 1.6; }
-  .clear-btn { background: none; border: 1px solid rgba(190,110,70,0.4); border-radius: 6px; padding: 11px 16px; font-size: 13px; color: var(--secondary); cursor: pointer; align-self: flex-start; min-height: 44px; }
-  .clear-btn:hover { background: rgba(190,110,70,0.06); }
-  .clear-btn:focus-visible { outline: 2px solid var(--secondary); outline-offset: 2px; }
+  .clear-btn { background: none; border: 1px solid rgba(1,82,55,0.3); border-radius: 6px; padding: 11px 16px; font-size: 13px; color: var(--primary); cursor: pointer; align-self: flex-start; min-height: 44px; font-weight: 500; }
+  .clear-btn:hover { background: rgba(1,82,55,0.06); }
+  .clear-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
   /* Focus rings for keyboard navigation */
   .logo:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 2px; }

@@ -36,15 +36,13 @@ function formatDate(iso: string): string {
 export default function ProfilePage() {
   const [data, setData] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
     fetch('/api/profile')
-      .then(r => r.json())
-      .then(d => {
-        setData(d)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+      .then(r => { if (!r.ok) throw new Error('failed'); return r.json() })
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => { setError(true); setLoading(false) })
   }, [])
 
   return (
@@ -67,6 +65,13 @@ export default function ProfilePage() {
               <div className="skeleton-row tall" />
               <div className="skeleton-row" />
               <div className="skeleton-row" />
+            </div>
+          ) : error ? (
+            <div className="empty-state">
+              <div className="empty-icon">🧱</div>
+              <div className="empty-title">Couldn&apos;t load your profile</div>
+              <div className="empty-sub">Something went wrong. Try refreshing the page.</div>
+              <button className="empty-cta" onClick={() => window.location.reload()}>Refresh →</button>
             </div>
           ) : (
             <>
@@ -110,7 +115,7 @@ export default function ProfilePage() {
                     <div className="link-icon">🕐</div>
                     <div className="link-text">
                       <div className="link-label">Chat History</div>
-                      <div className="link-sub">{data?.sessionCount ?? 0} sessions · Continue where you left off</div>
+                      <div className="link-sub">{data?.sessionCount ?? 0} {data?.sessionCount === 1 ? 'session' : 'sessions'} · Continue where you left off</div>
                     </div>
                     <span className="link-arrow">→</span>
                   </a>
@@ -130,9 +135,9 @@ export default function ProfilePage() {
               </div>
 
               {/* Recent signals */}
-              {data?.recentSignals && data.recentSignals.length > 0 && (
-                <div className="section">
-                  <div className="section-title">Recent interactions</div>
+              <div className="section">
+                <div className="section-title">Recent interactions</div>
+                {data?.recentSignals && data.recentSignals.length > 0 ? (
                   <div className="signals-list">
                     {data.recentSignals.map((s, i) => (
                       <div key={i} className="signal-row">
@@ -145,8 +150,10 @@ export default function ProfilePage() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="signals-empty">Browse local shops and save items to see your activity here.</div>
+                )}
+              </div>
 
               {/* Privacy section */}
               <div className="section privacy-section">
@@ -182,7 +189,7 @@ const styles = `
     --secondary: #be6e46;
     --cream: #f1e9d8;
     --accent: #7a9e7e;
-    --muted: #9aaa88;
+    --muted: #5c6e52;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: radial-gradient(ellipse at 50% 30%, #f2ede4 0%, #f7f7f5 70%); color: var(--text); font-family: 'DM Sans', 'Helvetica Neue', sans-serif; }
@@ -241,6 +248,14 @@ const styles = `
   .signal-type { font-weight: 600; color: var(--primary); }
   .signal-product { color: var(--muted); }
   .signal-date { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .signals-empty { font-size: 13px; color: var(--muted); font-style: italic; padding: 10px 0; }
+
+  /* Error empty state */
+  .empty-state { text-align: center; padding: 64px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .empty-icon { font-size: 48px; }
+  .empty-title { font-family: Georgia, serif; font-size: 20px; font-weight: 700; color: var(--text); }
+  .empty-sub { font-size: 14px; color: var(--muted); line-height: 1.6; max-width: 280px; }
+  .empty-cta { background: var(--primary); color: var(--cream); border: none; border-radius: 6px; padding: 12px 24px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
 
   /* Privacy */
   .privacy-section { background: white; border: 1px solid rgba(122,158,126,0.2); border-radius: 10px; padding: 18px 20px; gap: 12px; }

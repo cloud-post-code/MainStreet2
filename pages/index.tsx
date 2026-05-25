@@ -240,10 +240,10 @@ export default function Home() {
               <a href="/history" className="nav-link">History</a>
               <a href="/inbox" className="nav-link">Inbox</a>
               {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
-              {isAuthenticated
+              {!isAdmin && (isAuthenticated
                 ? <a href="/profile" className="nav-link nav-link-account">{authUser?.name ?? 'Account'}</a>
                 : <a href="/login" className="nav-link nav-link-signin">Sign in</a>
-              }
+              )}
             </div>
           </header>
           <div className="card-wrap">
@@ -293,10 +293,10 @@ export default function Home() {
             <a href="/history" className="nav-link">History</a>
             <a href="/inbox" className="nav-link">Inbox</a>
             {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
-            {isAuthenticated
+            {!isAdmin && (isAuthenticated
               ? <a href="/profile" className="nav-link nav-link-account">{authUser?.name ?? 'Account'}</a>
               : <a href="/login" className="nav-link nav-link-signin">Sign in</a>
-            }
+            )}
           </div>
         </header>
         <div className="chat-layout">

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Head from 'next/head'
+import { useSession } from 'next-auth/react'
 import type { ProductResult } from '../lib/types'
 
 type MessageRole = 'user' | 'assistant'
@@ -23,6 +24,10 @@ const MASON_EXPRESSIONS: Record<MasonMood, string> = {
 const TURN_LIMIT = 8
 
 export default function Home() {
+  const { data: session, status: authStatus } = useSession()
+  const isAuthenticated = authStatus === 'authenticated'
+  const authUser = session?.user as { id?: string; name?: string; email?: string } | undefined
+
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -33,7 +38,17 @@ export default function Home() {
   const [chatStarted, setChatStarted] = useState(false)
   const [suggestChips, setSuggestChips] = useState<string[]>([])
   const [updatingProducts, setUpdatingProducts] = useState(false)
+  const [showSignupNudge, setShowSignupNudge] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
+
+  // Detect admin session (separate auth from shopper session)
+  useEffect(() => {
+    fetch('/api/auth/session')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.user?.role === 'admin') setIsAdmin(true) })
+      .catch(() => {})
+  }, [])
 
   // Check for expired session on mount, or a ?session= param from history continuation
   useEffect(() => {
@@ -156,6 +171,11 @@ export default function Home() {
           } else if (eventType === 'done') {
             setTurnCount(parsed.turnCount)
             setMasonMood(fullText.includes('?') ? 'curious' : 'happy')
+            // Show signup nudge after first assistant response if not logged in
+            if (!isAuthenticated && parsed.turnCount === 1) {
+              const dismissed = typeof window !== 'undefined' && sessionStorage.getItem('ms_nudge_dismissed')
+              if (!dismissed) setShowSignupNudge(true)
+            }
             setMessages(prev => {
               const updated = [...prev]
               updated[updated.length - 1] = {
@@ -219,6 +239,11 @@ export default function Home() {
             <div className="header-nav">
               <a href="/history" className="nav-link">History</a>
               <a href="/inbox" className="nav-link">Inbox</a>
+              {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
+              {isAuthenticated
+                ? <a href="/account" className="nav-link nav-link-account">{authUser?.name ?? 'Account'}</a>
+                : <a href="/login" className="nav-link nav-link-signin">Sign in</a>
+              }
             </div>
           </header>
           <div className="card-wrap">
@@ -267,6 +292,7 @@ export default function Home() {
           <div className="header-nav">
             <a href="/history" className="nav-link">History</a>
             <a href="/inbox" className="nav-link">Inbox</a>
+            {isAdmin && <a href="/admin" className="nav-link nav-link-admin">Admin</a>}
           </div>
         </header>
         <div className="chat-layout">
@@ -342,6 +368,20 @@ export default function Home() {
               </div>
             ) : (
               <form className="input-bar" onSubmit={handleSubmit}>
+                {showSignupNudge && !isAuthenticated && (
+                  <div className="signup-nudge">
+                    <span>🧱 Want to save this conversation? </span>
+                    <a href="/signup" className="nudge-link">Create a free account →</a>
+                    <button
+                      type="button"
+                      className="nudge-dismiss"
+                      onClick={() => {
+                        sessionStorage.setItem('ms_nudge_dismissed', '1')
+                        setShowSignupNudge(false)
+                      }}
+                    >×</button>
+                  </div>
+                )}
                 {suggestChips.length > 0 && (
                   <div className="chips">
                     {suggestChips.map(chip => (
@@ -390,6 +430,12 @@ const styles = `
   .header-nav { margin-left: auto; display: flex; gap: 4px; }
   .nav-link { font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 6px; transition: background 150ms, color 150ms; }
   .nav-link:hover { background: rgba(1,82,55,0.06); color: var(--primary); }
+  .nav-link-signin { color: var(--primary); font-weight: 600; }
+  .nav-link-account { color: var(--primary); font-weight: 600; }
+  .nav-link-admin { color: var(--muted); font-weight: 500; }
+  .signup-nudge { display: flex; align-items: center; gap: 8px; background: #f0f7f4; border: 1px solid #b7dfc9; border-radius: 8px; padding: 10px 14px; font-size: 14px; color: #1a4a35; margin-bottom: 8px; }
+  .nudge-link { color: var(--primary); font-weight: 600; text-decoration: none; flex: 1; }
+  .nudge-dismiss { background: none; border: none; cursor: pointer; color: #888; font-size: 18px; padding: 0 4px; line-height: 1; margin-left: auto; }
   .logo:hover { opacity: 0.8; }
   .tagline { font-size: 13px; color: var(--muted); font-style: italic; }
 

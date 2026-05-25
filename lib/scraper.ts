@@ -1,21 +1,28 @@
 import { chromium } from 'playwright'
 import { getSupabaseClient } from './supabase'
 import { sanitizeProductText } from './scraper-sanitize'
+import type { ScrapeDiff } from './types'
 
+export const STALE_THRESHOLD_DAYS = 7
 const DOMAIN_DELAY_MS = 2000
 
-interface ScrapeTarget {
+export interface ScrapeTarget {
   businessId: string
   businessName: string
   urls: string[]
 }
 
-interface RawProduct {
+export interface RawProduct {
   name: string
   price: number
   url: string
   imageUrl?: string
   description?: string
+}
+
+export interface ScrapeOptions {
+  log?: (msg: string) => void
+  signal?: AbortSignal
 }
 
 async function embedText(text: string): Promise<number[]> {
@@ -31,13 +38,22 @@ async function embedText(text: string): Promise<number[]> {
   return data.data[0].embedding
 }
 
-async function scrapeShopPage(url: string): Promise<RawProduct[]> {
+export async function scrapeShopPage(url: string, opts: ScrapeOptions = {}): Promise<RawProduct[]> {
+  const { log = () => {}, signal } = opts
+  if (signal?.aborted) return []
+
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage()
   const products: RawProduct[] = []
 
+  const onAbort = () => { browser.close().catch(() => {}) }
+  signal?.addEventListener('abort', onAbort)
+
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
+    log(`Navigating to ${url}`)
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+
+    if (signal?.aborted) return []
 
     // Generic extraction — works for most Shopify-style storefronts
     const items = await page.$$eval('[data-product-id], .product-item, .grid-item', nodes =>
@@ -66,42 +82,72 @@ async function scrapeShopPage(url: string): Promise<RawProduct[]> {
         imageUrl: item.imageUrl || undefined,
       })
     }
+
+    log(`Found ${products.length} products on ${url}`)
   } finally {
-    await browser.close()
+    signal?.removeEventListener('abort', onAbort)
+    await browser.close().catch(() => {})
   }
 
   return products
 }
 
-export async function scrapeAndUpsert(target: ScrapeTarget): Promise<{ upserted: number; errors: number }> {
+export async function scrapeAndUpsert(
+  target: ScrapeTarget,
+  opts: ScrapeOptions = {}
+): Promise<{ upserted: number; errors: number; diff: ScrapeDiff }> {
+  const { log = () => {}, signal } = opts
   const supabase = getSupabaseClient()
   let upserted = 0
   let errors = 0
+  const diff: ScrapeDiff = { added: 0, priceChanges: [], removed: 0 }
 
-  // Baseline: count products before scraping to detect anomalies
   const { count: before } = await supabase
     .from('products')
     .select('*', { count: 'exact', head: true })
     .eq('business_id', target.businessId)
 
+  // Snapshot existing prices for diff comparison
+  const { data: existingProducts } = await supabase
+    .from('products')
+    .select('url, name, price')
+    .eq('business_id', target.businessId)
+
+  const priceByUrl = new Map<string, { name: string; price: number }>()
+  for (const p of (existingProducts ?? [])) {
+    priceByUrl.set(p.url, { name: p.name, price: Number(p.price) })
+  }
+
   for (const url of target.urls) {
+    if (signal?.aborted) break
     await new Promise(r => setTimeout(r, DOMAIN_DELAY_MS))
 
     let products: RawProduct[]
     try {
-      products = await scrapeShopPage(url)
+      products = await scrapeShopPage(url, opts)
     } catch (err) {
-      console.error(`scrape failed for ${url}:`, err)
+      log(`ERROR: scrape failed for ${url}: ${err}`)
       errors++
       continue
     }
 
     for (const product of products) {
+      if (signal?.aborted) break
+
       try {
         const cleanName = sanitizeProductText(product.name)
         const cleanDesc = product.description ? sanitizeProductText(product.description) : ''
         const embedInput = cleanDesc ? `${cleanName} ${cleanDesc}` : cleanName
         const embedding = await embedText(embedInput)
+
+        const existing = priceByUrl.get(product.url)
+        if (!existing) {
+          diff.added++
+          log(`+ new: ${cleanName} $${product.price}`)
+        } else if (Math.abs(existing.price - product.price) > 0.01) {
+          diff.priceChanges.push({ name: cleanName, oldPrice: existing.price, newPrice: product.price })
+          log(`~ price: ${cleanName} $${existing.price} → $${product.price}`)
+        }
 
         await supabase.from('products').upsert(
           {
@@ -119,21 +165,21 @@ export async function scrapeAndUpsert(target: ScrapeTarget): Promise<{ upserted:
         )
         upserted++
       } catch (err) {
-        console.error(`embed/upsert failed for ${product.url}:`, err)
+        log(`ERROR: embed/upsert failed for ${product.url}: ${err}`)
         errors++
       }
     }
   }
 
-  // Anomaly guard: warn if product count drops by >40%
   const { count: after } = await supabase
     .from('products')
     .select('*', { count: 'exact', head: true })
     .eq('business_id', target.businessId)
 
   if (before && after && after < before * 0.6) {
-    console.warn(`Product count dropped from ${before} to ${after} for business ${target.businessId}`)
+    log(`WARNING: product count dropped from ${before} to ${after}`)
   }
 
-  return { upserted, errors }
+  diff.removed = Math.max(0, (before ?? 0) - (after ?? 0))
+  return { upserted, errors, diff }
 }

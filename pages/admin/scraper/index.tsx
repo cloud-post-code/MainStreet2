@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react'
 import AdminLayout from '../../../components/admin/AdminLayout'
 import { requireAdminSession } from '../../../lib/admin/auth'
 import { getAdminClient } from '../../../lib/admin/supabase-admin'
-import { STALE_THRESHOLD_DAYS } from '../../../lib/scraper'
-import type { ScrapeDiff, ScrapeStatus } from '../../../lib/types'
+import { STALE_THRESHOLD_DAYS, type ScrapeDiff, type ScrapeStatus } from '../../../lib/types'
 
 interface Business {
   id: string

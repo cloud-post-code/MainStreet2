@@ -73,7 +73,10 @@ export default function CompaniesIndex({ companies, categories, towns }: Props) 
     <AdminLayout title="Companies">
       <div style={styles.header}>
         <h1 style={styles.h1}>Companies</h1>
-        <Link href="/admin/companies/new" style={styles.addBtn}>+ Add Company</Link>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Link href="/admin/companies/import" style={styles.importBtn}>Import CSV</Link>
+          <Link href="/admin/companies/new" style={styles.addBtn}>+ Add Company</Link>
+        </div>
       </div>
 
       <div style={styles.filters}>
@@ -198,6 +201,7 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
 const styles: Record<string, React.CSSProperties> = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   h1: { fontSize: 24, fontWeight: 700, color: '#111827', margin: 0 },
+  importBtn: { padding: '9px 18px', background: '#fff', border: '1px solid #d1d5db', color: '#374151', borderRadius: 8, textDecoration: 'none', fontSize: 14, fontWeight: 500 },
   addBtn: {
     padding: '9px 18px',
     background: '#015237',

@@ -159,7 +159,9 @@ const styles = `
   .empty-icon { font-size: 48px; }
   .empty-title { font-family: Georgia, serif; font-size: 20px; font-weight: 700; color: var(--text); }
   .empty-sub { font-size: 14px; color: var(--muted); line-height: 1.6; max-width: 280px; }
-  .empty-cta { background: var(--primary); color: var(--cream); border-radius: 6px; padding: 12px 24px; font-size: 15px; font-weight: 600; text-decoration: none; margin-top: 8px; }
+  .empty-cta { background: var(--primary); color: var(--cream); border-radius: 6px; padding: 12px 24px; font-size: 15px; font-weight: 600; text-decoration: none; margin-top: 8px; display: inline-block; }
+  .empty-cta-secondary { background: none; border: 1px solid rgba(1,82,55,0.3); border-radius: 6px; padding: 10px 24px; font-size: 14px; font-weight: 500; text-decoration: none; color: var(--primary); display: inline-block; }
+  .empty-cta-secondary:hover { background: rgba(1,82,55,0.06); }
 
   /* Session rows */
   .session-row { display: flex; align-items: center; gap: 16px; background: white; border: 1px solid rgba(122,158,126,0.2); border-radius: 10px; padding: 16px 20px; cursor: pointer; text-align: left; width: 100%; transition: box-shadow 150ms, opacity 150ms; }

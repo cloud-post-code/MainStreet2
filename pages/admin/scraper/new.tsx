@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import AdminLayout from '../../../components/admin/AdminLayout'
 import { requireAdminSession } from '../../../lib/admin/auth'
 import { getAdminClient } from '../../../lib/admin/supabase-admin'
-import type { RawProduct } from '../../../lib/scraper'
+import type { RawProduct } from '../../../lib/types'
 
 interface Business {
   id: string

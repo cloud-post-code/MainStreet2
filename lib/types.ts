@@ -107,3 +107,13 @@ export interface ScrapeDiff {
 }
 
 export type ScrapeStatus = 'never' | 'running' | 'success' | 'error' | 'cancelled'
+
+export const STALE_THRESHOLD_DAYS = 7
+
+export interface RawProduct {
+  name: string
+  price: number
+  url: string
+  imageUrls: string[]
+  description?: string
+}

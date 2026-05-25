@@ -2,19 +2,11 @@ export const runtime = 'edge'
 
 import { getSupabaseClient } from '../../lib/supabase'
 import { deriveSearchQuery, searchProducts } from '../../lib/search'
+import { resolveCustomerId } from '../../lib/auth'
 import type { ConversationRow, ChatErrorCode, ChatErrorEvent, MessageParam, ProductResult } from '../../lib/types'
 
 const TURN_LIMIT = 8
 const TTL_MS = 24 * 60 * 60 * 1000
-
-// Web Crypto fingerprint — never node:crypto (not available in Edge runtime)
-async function buildFingerprint(req: Request): Promise<string> {
-  const ua = req.headers.get('user-agent') ?? ''
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] ?? ''
-  const raw = new TextEncoder().encode(`${ua}|${ip}`)
-  const hash = await crypto.subtle.digest('SHA-256', raw)
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
 
 function sseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -93,7 +85,8 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const supabase = getSupabaseClient()
-  const fingerprint = await buildFingerprint(req)
+  const identity = await resolveCustomerId(req)
+  const fingerprint = identity.id
   const isRelaxed = process.env.FINGERPRINT_ENFORCEMENT === 'relaxed'
   const isOff = process.env.FINGERPRINT_ENFORCEMENT === 'off'
 
@@ -121,7 +114,15 @@ export default async function handler(req: Request): Promise<Response> {
       })
     }
 
-    if (!isOff && data.session_fingerprint) {
+    // Verify ownership: authenticated users check user_id, guests check fingerprint
+    if (identity.isAuthenticated) {
+      if (data.user_id && data.user_id !== identity.id) {
+        return new Response(errorEvent(404, 'session_not_found', 'Session not found or expired', false), {
+          status: 404,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      }
+    } else if (!isOff && data.session_fingerprint) {
       const fingerprintMatches = isRelaxed
         ? fingerprint.startsWith(data.session_fingerprint.slice(0, 16))
         : fingerprint === data.session_fingerprint
@@ -144,11 +145,15 @@ export default async function handler(req: Request): Promise<Response> {
   } else {
     isNewSession = true
     const expiresAt = new Date(Date.now() + TTL_MS).toISOString()
-    const { data, error } = await supabase
-      .from('conversations')
-      .insert({ messages: [], turn_count: 0, version: 0, session_fingerprint: fingerprint, expires_at: expiresAt })
-      .select()
-      .single()
+    const newRow: Record<string, unknown> = {
+      messages: [],
+      turn_count: 0,
+      version: 0,
+      expires_at: expiresAt,
+      session_fingerprint: identity.isAuthenticated ? null : fingerprint,
+      user_id: identity.isAuthenticated ? identity.id : null,
+    }
+    const { data, error } = await supabase.from('conversations').insert(newRow).select().single()
     if (error || !data) {
       return new Response(errorEvent(500, 'internal_error', 'Could not start session', false), {
         status: 500,

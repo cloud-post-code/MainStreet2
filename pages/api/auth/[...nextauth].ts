@@ -67,7 +67,7 @@ export const authOptions: NextAuthOptions = {
         }
 
         clearFailures(ip)
-        return { id: user.id, email: user.email, name: user.name ?? undefined }
+        return { id: user.id, email: user.email, name: user.name ?? undefined, role: 'admin' as const }
       },
     }),
   ],
@@ -79,12 +79,16 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   callbacks: {
     async jwt({ token, user }) {
-      if (user) token.id = user.id
+      if (user) {
+        token.id = user.id
+        token.role = (user as { role?: string }).role ?? 'admin'
+      }
       return token
     },
     async session({ session, token }) {
       if (session.user && token.id) {
-        (session.user as { id?: string }).id = token.id as string
+        (session.user as { id?: string; role?: string }).id = token.id as string
+        ;(session.user as { id?: string; role?: string }).role = token.role as string
       }
       return session
     },

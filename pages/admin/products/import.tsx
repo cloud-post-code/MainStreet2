@@ -23,12 +23,13 @@ const PRODUCT_FIELDS = [
   { key: 'category_name', label: 'Category', required: false, hint: 'Defaults to "Other" if blank or unrecognised' },
   { key: 'sku', label: 'SKU', required: false, hint: '' },
   { key: 'availability', label: 'Availability', required: false, hint: 'in_stock / out_of_stock / limited / unknown' },
-  { key: 'image_url', label: 'Image URL', required: false, hint: '' },
+  { key: 'image_url', label: 'Image URL', required: false, hint: 'Primary image' },
+  { key: 'image_urls', label: 'Additional Images', required: false, hint: 'Pipe-separated URLs, e.g. url1|url2|url3' },
   { key: 'url', label: 'Source URL', required: false, hint: '' },
 ]
 
-const TEMPLATE_HEADERS = 'shop_name,name,price,description,category,sku,availability,image_url,source_url'
-const TEMPLATE_EXAMPLE = 'Harbor Bakery,Sourdough Loaf,8.50,Fresh baked daily,Food & Beverage,HB-001,in_stock,,https://harborbakery.com/sourdough'
+const TEMPLATE_HEADERS = 'shop_name,name,price,description,category,sku,availability,image_url,additional_images,source_url'
+const TEMPLATE_EXAMPLE = 'Harbor Bakery,Sourdough Loaf,8.50,Fresh baked daily,Food & Beverage,HB-001,in_stock,https://img.example.com/1.jpg,https://img.example.com/2.jpg|https://img.example.com/3.jpg,https://harborbakery.com/sourdough'
 
 function parseCsv(text: string): { headers: string[]; rows: ParsedRow[] } {
   const lines = text.trim().split(/\r?\n/)
@@ -89,6 +90,7 @@ export default function ImportProducts({ categories, shops }: Props) {
           h.toLowerCase() === f.label.toLowerCase() ||
           (f.key === 'shop_name' && ['shop', 'business', 'store', 'company'].includes(h.toLowerCase())) ||
           (f.key === 'category_name' && h.toLowerCase() === 'category') ||
+          (f.key === 'image_urls' && ['additional_images', 'extra_images', 'image_urls', 'images'].includes(h.toLowerCase())) ||
           (f.key === 'url' && ['source_url', 'source', 'product_url', 'link'].includes(h.toLowerCase()))
         )
         if (match) autoMap[f.key] = match
@@ -147,6 +149,7 @@ export default function ImportProducts({ categories, shops }: Props) {
       sku: mapping.sku ? row[mapping.sku] : undefined,
       availability: mapping.availability ? row[mapping.availability] : undefined,
       image_url: mapping.image_url ? row[mapping.image_url] : undefined,
+      image_urls: mapping.image_urls ? row[mapping.image_urls] : undefined,
       url: mapping.url ? row[mapping.url] : undefined,
     }))
 

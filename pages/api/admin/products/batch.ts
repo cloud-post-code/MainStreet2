@@ -15,6 +15,7 @@ interface ProductRow {
   sku?: string
   availability?: string
   image_url?: string
+  image_urls?: string   // pipe-separated list of additional images
   url?: string
   category_name?: string
 }
@@ -99,13 +100,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? row.availability!.toLowerCase()
       : 'unknown'
 
+    // Collect all image URLs: combine image_url and pipe-separated image_urls columns
+    const allImageUrls: string[] = []
+    if (row.image_url?.trim()) allImageUrls.push(row.image_url.trim())
+    if (row.image_urls) {
+      for (const u of row.image_urls.split('|')) {
+        const trimmed = u.trim()
+        if (trimmed && !allImageUrls.includes(trimmed)) allImageUrls.push(trimmed)
+      }
+    }
+
     toInsert.push({
       business_id: biz.id,
       business_name: biz.name,
       name: nameClean,
       description: row.description ? stripHtml(row.description) : null,
       price,
-      image_url: row.image_url || null,
+      image_url: allImageUrls[0] ?? null,
+      image_urls: allImageUrls,
       availability,
       category_id: categoryId,
       sku: row.sku || null,

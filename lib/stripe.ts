@@ -16,27 +16,30 @@ export async function createCheckoutSession(
   conversationId: string,
   successUrl: string,
   cancelUrl: string,
+  userId?: string,
 ): Promise<string> {
   const supabase = getSupabaseClient()
 
-  // Snapshot fulfillment context to orders table before conversation can expire
+  const orderInsert: Record<string, unknown> = {
+    conversation_id: conversationId,
+    status: 'pending',
+    context: {
+      items: items.map(i => ({
+        name: i.product.name,
+        price: i.product.price,
+        shop: i.product.business_name,
+        url: i.product.url,
+        image_url: i.product.image_url,
+        quantity: i.quantity,
+      })),
+    },
+    total_cents: items.reduce((sum, i) => sum + Math.round(i.product.price * 100) * i.quantity, 0),
+  }
+  if (userId) orderInsert.user_id = userId
+
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .insert({
-      conversation_id: conversationId,
-      status: 'pending',
-      context: {
-        items: items.map(i => ({
-          name: i.product.name,
-          price: i.product.price,
-          shop: i.product.business_name,
-          url: i.product.url,
-          image_url: i.product.image_url,
-          quantity: i.quantity,
-        })),
-      },
-      total_cents: items.reduce((sum, i) => sum + Math.round(i.product.price * 100) * i.quantity, 0),
-    })
+    .insert(orderInsert)
     .select('id')
     .single()
 
@@ -57,18 +60,20 @@ export async function createCheckoutSession(
     quantity: item.quantity,
   }))
 
+  const metadata: Record<string, string> = {
+    order_id: order.id,
+    conversation_id: conversationId,
+  }
+  if (userId) metadata.user_id = userId
+
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     line_items: lineItems,
     success_url: successUrl,
     cancel_url: cancelUrl,
-    metadata: {
-      order_id: order.id,
-      conversation_id: conversationId,
-    },
+    metadata,
   })
 
-  // Link Stripe session to our order
   await supabase
     .from('orders')
     .update({ stripe_session_id: session.id })

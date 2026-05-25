@@ -1,15 +1,8 @@
 export const runtime = 'edge'
 
 import { getSupabaseClient } from '../../../lib/supabase'
+import { resolveCustomerId } from '../../../lib/auth'
 import type { InboxThread, MessageParam } from '../../../lib/types'
-
-async function getCustomerId(req: Request): Promise<string> {
-  const ua = req.headers.get('user-agent') ?? ''
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] ?? ''
-  const raw = new TextEncoder().encode(`${ua}|${ip}`)
-  const hash = await crypto.subtle.digest('SHA-256', raw)
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
 
 function sseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -40,15 +33,14 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  const customerId = await getCustomerId(req)
+  const identity = await resolveCustomerId(req)
   const supabase = getSupabaseClient()
 
-  const { data: thread, error: fetchError } = await supabase
-    .from('inbox_threads')
-    .select('*')
-    .eq('id', threadId)
-    .eq('customer_id', customerId)
-    .single()
+  const baseQuery = supabase.from('inbox_threads').select('*').eq('id', threadId)
+  const { data: thread, error: fetchError } = await (identity.isAuthenticated
+    ? baseQuery.eq('user_id', identity.id)
+    : baseQuery.eq('customer_id', identity.id)
+  ).single()
 
   if (fetchError || !thread) {
     return new Response(JSON.stringify({ error: 'Thread not found' }), {

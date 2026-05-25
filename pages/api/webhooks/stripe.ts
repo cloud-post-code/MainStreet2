@@ -30,14 +30,15 @@ export default async function handler(req: Request): Promise<Response> {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
     const orderId = session.metadata?.order_id
+    const userId = session.metadata?.user_id
     if (orderId) {
-      await supabase
-        .from('orders')
-        .update({
-          status: 'paid',
-          stripe_payment_intent: session.payment_intent as string,
-        })
-        .eq('id', orderId)
+      const update: Record<string, unknown> = {
+        status: 'paid',
+        stripe_payment_intent: session.payment_intent as string,
+        customer_email: (session.customer_details?.email) ?? undefined,
+      }
+      if (userId) update.user_id = userId
+      await supabase.from('orders').update(update).eq('id', orderId)
     }
   }
 

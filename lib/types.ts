@@ -12,6 +12,7 @@ export interface ConversationRow {
   turn_count: number
   version: number
   session_fingerprint: string | null
+  user_id: string | null
   expires_at: string
   created_at: string
 }
@@ -75,8 +76,25 @@ export interface InboxThread {
 export interface PreferenceSignal {
   id: string
   customer_id: string
+  user_id: string | null
   signal_type: 'viewed' | 'added_to_cart' | 'purchased' | 'dismissed'
   product_id: string | null
   product_name: string | null
   created_at: string
 }
+
+export interface User {
+  id: string
+  email: string
+  name: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SignupRequest {
+  email: string
+  password: string
+  name?: string
+}
+
+export type UserRole = 'shopper' | 'admin'

@@ -21,41 +21,45 @@ export default function SignupPage() {
     setLoading(true)
     setError('')
 
-    const res = await fetch('/api/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    })
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      })
 
-    const data = await res.json()
+      const data = await res.json()
 
-    if (!res.ok) {
-      setLoading(false)
-      if (data.code === 'EMAIL_EXISTS') {
-        setError('An account with that email already exists.')
-      } else if (data.error?.includes('8 characters')) {
-        setError('Password must be at least 8 characters')
-      } else if (res.status === 429) {
-        setError('Too many attempts. Try again in 15 minutes.')
-      } else {
-        setError("Couldn't create your account — try again")
+      if (!res.ok) {
+        if (data.code === 'EMAIL_EXISTS') {
+          setError('An account with that email already exists.')
+        } else if (data.error?.includes('8 characters')) {
+          setError('Password must be at least 8 characters')
+        } else if (res.status === 429) {
+          setError('Too many attempts. Try again in 15 minutes.')
+        } else {
+          setError("Couldn't create your account — try again")
+        }
+        return
       }
-      return
-    }
 
-    // Auto sign in after successful signup
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-      callbackUrl: '/',
-    })
+      // Auto sign in after successful signup
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+        callbackUrl: '/',
+      })
 
-    setLoading(false)
-    if (result?.error) {
-      router.push('/login')
-    } else {
-      router.push('/')
+      if (result?.error) {
+        router.push('/login')
+      } else {
+        router.push('/')
+      }
+    } catch {
+      setError("Couldn't create your account — try again")
+    } finally {
+      setLoading(false)
     }
   }
 

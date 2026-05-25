@@ -24,6 +24,7 @@ export interface ProductResult {
   price: number
   url: string
   image_url: string | null
+  image_urls: string[]
   last_seen: string
   similarity: number
 }

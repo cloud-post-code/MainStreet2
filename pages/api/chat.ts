@@ -75,7 +75,10 @@ function generateSuggestions(
   products: ProductResult[],
   messages: MessageParam[]
 ): string[] {
-  const isQuestion = fullText.trimEnd().endsWith('?')
+  // Treat any response with a '?' and no products as a clarifying-question turn.
+  // Mason often adds a follow-up sentence after the '?' (ending in '!'), so
+  // trimEnd().endsWith('?') is too narrow.
+  const isQuestion = fullText.includes('?') && products.length === 0
   const masonLower = fullText.toLowerCase()
 
   // Extract user's original ask for personalisation context
@@ -334,7 +337,7 @@ export default async function handler(req: Request): Promise<Response> {
       if (updateError) {
         await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
       } else {
-        const isAskingQuestion = fullText.trimEnd().endsWith('?')
+        const isAskingQuestion = fullText.includes('?') && productResults.length === 0
         if (productResults.length > 0 && !isAskingQuestion) {
           await write(sseEvent('products', { products: productResults }))
         }

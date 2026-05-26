@@ -215,8 +215,13 @@ export default async function handler(req: Request): Promise<Response> {
         const choice = json.choices[0]
 
         if (choice.finish_reason === 'tool_calls') {
-          // Append the assistant's tool-call message to the in-flight history
-          oaiMessages.push(choice.message as OAIMessage)
+          // Reconstruct explicitly rather than casting — the wire shape may omit content entirely
+          const assistantTurn: OAIMessage = {
+            role: 'assistant',
+            content: choice.message.content ?? null,
+            tool_calls: choice.message.tool_calls,
+          }
+          oaiMessages.push(assistantTurn)
 
           for (const tc of choice.message.tool_calls ?? []) {
             let args: Record<string, unknown>
@@ -230,6 +235,10 @@ export default async function handler(req: Request): Promise<Response> {
 
             if (tc.function.name === 'search_products') {
               const queries = (args.queries as string[]) ?? []
+              if (queries.length === 0) {
+                oaiMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: 'queries array is required and must be non-empty' }) })
+                continue
+              }
               const limitPerQuery = (args.limit_per_query as number) ?? 5
               const results = await searchProductsMulti(queries, limitPerQuery)
               results.forEach(p => {
@@ -282,61 +291,20 @@ export default async function handler(req: Request): Promise<Response> {
         }
 
         if (choice.finish_reason === 'stop') {
-          // Final text turn — stream it
-          const streamResp = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o',
-              max_tokens: 1024,
-              stream: true,
-              messages: oaiMessages,
-            }),
-            signal: req.signal,
-          })
-
-          if (!streamResp.ok) {
-            const err = await streamResp.text()
-            console.error('OpenAI error (stream):', err)
-            await write(errorEvent(500, 'internal_error', 'Something went wrong', false))
-            return
-          }
-
-          const reader = streamResp.body!.getReader()
-          const dec = new TextDecoder()
-          let buf = ''
-
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buf += dec.decode(value, { stream: true })
-            const lines = buf.split('\n')
-            buf = lines.pop() ?? ''
-
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue
-              const payload = line.slice(6).trim()
-              if (payload === '[DONE]') continue
-              try {
-                const chunk = JSON.parse(payload) as { choices: Array<{ delta: { content?: string } }> }
-                const text = chunk.choices[0]?.delta?.content ?? ''
-                if (text) {
-                  fullText += text
-                  await write(sseEvent('delta', { text }))
-                }
-              } catch {
-                // malformed chunk — skip
-              }
-            }
+          fullText = choice.message.content ?? ''
+          if (fullText) {
+            await write(sseEvent('delta', { text: fullText }))
           }
           break
         }
 
         // Unexpected finish_reason — break to avoid infinite loop
         break
+      }
+
+      if (!fullText) {
+        await write(errorEvent(500, 'internal_error', 'No response generated', true))
+        return
       }
 
       // Persist conversation (only user+assistant turns — strip OAI tool messages)

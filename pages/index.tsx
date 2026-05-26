@@ -200,13 +200,21 @@ export default function Home() {
           } else if (eventType === 'businesses') {
             newBusinesses = parsed.businesses
           } else if (eventType === 'error') {
+            const isSessionError = parsed.type === 'session_not_found' || parsed.type === 'session_expired'
+            if (isSessionError) {
+              localStorage.removeItem('ms_session')
+              setSessionId(null)
+              setInput(text)
+            }
             setMessages(prev => {
               const updated = [...prev]
               updated[updated.length - 1] = {
                 role: 'assistant',
                 text: parsed.type === 'turn_limit_exceeded'
                   ? 'I want to make sure I find you the right thing — want to see what I have so far?'
-                  : 'Something went wrong. Let\'s try again.',
+                  : isSessionError
+                    ? 'Your session expired — just hit send again and I\'ll start fresh!'
+                    : 'Something went wrong. Let\'s try again.',
                 isStreaming: false,
               }
               return updated

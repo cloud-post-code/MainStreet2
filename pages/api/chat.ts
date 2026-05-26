@@ -78,15 +78,17 @@ function generateSuggestions(
   products: ProductResult[],
   messages: MessageParam[]
 ): string[] {
-  // Treat any response with a '?' and no products as a clarifying-question turn.
-  // Mason often adds a follow-up sentence after the '?' (ending in '!'), so
-  // trimEnd().endsWith('?') is too narrow.
-  const isQuestion = fullText.includes('?') && products.length === 0
+  // Detect a standalone question mark (not inside a URL query string like ?id=123).
+  // \?(\s|$) matches '?' followed by whitespace or end-of-string.
+  const isQuestion = /\?(\s|$)/.test(fullText) && products.length === 0
   const masonLower = fullText.toLowerCase()
 
-  // Extract user's original ask for personalisation context
-  const firstUserMsg = messages.find(m => m.role === 'user')
-  const userCtx = (typeof firstUserMsg?.content === 'string' ? firstUserMsg.content : '').toLowerCase()
+  // Scan all user messages for context (pronoun/gift signals may appear mid-conversation)
+  const userCtx = messages
+    .filter(m => m.role === 'user')
+    .map(m => typeof m.content === 'string' ? m.content : '')
+    .join(' ')
+    .toLowerCase()
   const isSheCtx = /\bshe\b|\bher\b|\bsister\b|\bgirlfriend\b|\bwife\b|\bmom\b|\bmother\b|\bdaughter\b|\bgrandma\b/.test(userCtx)
   const isHeCtx  = /\bhe\b|\bhim\b|\bbrother\b|\bboyfriend\b|\bhusband\b|\bdad\b|\bfather\b|\bson\b|\bgrandpa\b/.test(userCtx)
   const isGift   = /\bgift\b|\bpresent\b|\bsister\b|\bbrother\b|\bmother\b|\bfather\b|\bfriend\b|\bpartner\b|\bwife\b|\bhusband\b|\bson\b|\bdaughter\b|\bgrandma\b|\bgrandpa\b/.test(userCtx)
@@ -111,8 +113,9 @@ function generateSuggestions(
     }
     if (/\bbudget\b|\bspend\b|\bhow much\b|\bprice range\b|\bafford\b|\bwilling to pay\b/.test(masonLower)) {
       if (isGift) {
-        const pronoun = isSheCtx ? 'she' : isHeCtx ? 'he' : 'they'
-        return ["Under $30", "Under $50", `No limit — ${pronoun}'s worth it!`]
+        if (isSheCtx) return ["Under $30", "Under $50", "No limit — she's worth it!"]
+        if (isHeCtx)  return ["Under $30", "Under $50", "No limit — he's worth it!"]
+        return ["Under $30", "Under $50", "No limit — they're worth it!"]
       }
       return ["Under $30", "Under $50", "No budget limit!"]
     }
@@ -122,7 +125,7 @@ function generateSuggestions(
     if (/\bstyle\b|\baesthetic\b|\blook and feel\b|\bdesign prefer\b/.test(masonLower)) {
       return ["Natural & rustic", "Modern & clean", "Either works!"]
     }
-    if (/\bcolor\b|\bcolour prefer\b/.test(masonLower)) {
+    if (/\bcolor\b|\bcolour\b/.test(masonLower)) {
       return ["No preference", "Earth tones", "Something colorful!"]
     }
     if (/\bage\b|\bhow old\b|\bchild\b|\bkid\b|\bteen\b|\byoung\b/.test(masonLower)) {
@@ -249,7 +252,7 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  const searchRan = derivedQuery !== null
+  const searchRan = !!derivedQuery
   const openaiMessages = toOpenAIMessages(updatedMessages, productResults, searchRan)
 
   const isDebug = process.env.VERCEL_ENV !== 'production' &&
@@ -344,10 +347,7 @@ export default async function handler(req: Request): Promise<Response> {
       if (updateError) {
         await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
       } else {
-        // isQuestion: uses includes('?') because Mason often appends an encouragement
-        // sentence ending in '!' after the actual question, so endsWith('?') misses it.
-        const isAskingQuestion = fullText.includes('?') && productResults.length === 0
-        if (productResults.length > 0 && !isAskingQuestion) {
+        if (productResults.length > 0) {
           await write(sseEvent('products', { products: productResults }))
         }
         const suggestions = generateSuggestions(fullText, productResults, updatedMessages)

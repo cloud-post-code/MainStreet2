@@ -186,11 +186,9 @@ export default function Home() {
               }
               return updated
             })
-            if (parsed.suggestions?.length > 0) {
-              setSuggestChips(parsed.suggestions)
-            }
+            setSuggestChips(parsed.suggestions ?? [])
           } else if (eventType === 'products') {
-            newProducts = parsed.products
+            if (Array.isArray(parsed.products)) newProducts = parsed.products
           } else if (eventType === 'error') {
             setMessages(prev => {
               const updated = [...prev]

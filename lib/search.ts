@@ -24,7 +24,9 @@ export async function searchProductsMulti(queries: string[], limitPerQuery = 5):
   const supabase = getSupabaseClient()
   const rpcResults = await Promise.all(
     embeddings.map(embedding =>
-      supabase.rpc('match_products', { query_embedding: embedding, match_threshold: 0.72, match_count: limitPerQuery })
+      // 0.30 is intentionally lenient — text-embedding-3-small puts semantically related items in the 0.4–0.7 range;
+      // a high threshold filters out plenty of relevant products. Mason curates the top results via build_cards.
+      supabase.rpc('match_products', { query_embedding: embedding, match_threshold: 0.30, match_count: limitPerQuery })
     )
   )
 

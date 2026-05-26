@@ -5,7 +5,7 @@ import { deriveSearchQuery, searchProducts } from '../../lib/search'
 import { resolveCustomerId } from '../../lib/auth'
 import type { ConversationRow, ChatErrorCode, ChatErrorEvent, MessageParam, ProductResult } from '../../lib/types'
 
-const TURN_LIMIT = 8
+const TURN_LIMIT = 15
 const TTL_MS = 24 * 60 * 60 * 1000
 
 function sseEvent(event: string, data: unknown): string {
@@ -22,6 +22,15 @@ function shouldSearch(_messages: MessageParam[], _turnCount: number): boolean {
   // Skipping search after Mason asks a question was causing Mason to go 2+ turns
   // without any DB lookup, leading to repeated clarifying questions.
   return true
+}
+
+// Count how many times Mason has already asked a clarifying question (assistant turns ending with ?)
+function countQuestionsAsked(messages: MessageParam[]): number {
+  return messages.filter(m => {
+    if (m.role !== 'assistant') return false
+    const text = typeof m.content === 'string' ? m.content : ''
+    return /\?(\s|$)/.test(text)
+  }).length
 }
 
 // Convert our MessageParam history to OpenAI chat format
@@ -47,11 +56,13 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
       content: `[Product search results — use these to answer the customer]: ${productJson}`,
     })
   } else if (searchRan) {
-    // Search ran but found nothing — explicit zero-results signal so Mason cannot hallucinate
-    openaiMessages.push({
-      role: 'user',
-      content: '[Product search returned 0 results from the database. DO NOT name, describe, or recommend any products or shops. Ask the customer one clarifying question to help narrow the search.]',
-    })
+    const questionsAsked = countQuestionsAsked(messages)
+    const zeroResultsInstruction = questionsAsked >= 2
+      // Already asked 2+ questions — stop asking, pivot to what we have
+      ? '[Product search returned 0 results. You have already asked clarifying questions. Do NOT ask another question. Instead, apologize briefly, tell the customer you do not have that specific item right now, and suggest they try a slightly broader request or a different category — keep it warm and short, no more than 2 sentences.]'
+      // Fewer than 2 questions — one more is ok, but ask BROADER not more specific
+      : '[Product search returned 0 results from the database. DO NOT name, describe, or recommend any products. Ask ONE short question to broaden the search — go wider, not more specific (e.g. prefer "kitchen" over "ceramic mug"). Never ask more than one question.]'
+    openaiMessages.push({ role: 'user', content: zeroResultsInstruction })
   }
 
   return openaiMessages
@@ -59,19 +70,30 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
 
 const SYSTEM_PROMPT = `You are Mason, a warm and knowledgeable personal shopper for Main Street — a curated collection of local businesses in small-town America.
 
-Your job: guide customers to find exactly what they need from local shops they can trust.
+DATABASE-ONLY RULE: Only mention products and shops that appear in [Product search results]. Never invent or describe products not in those results.
 
-DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results. If no results are provided, ask a clarifying question instead.
+SPEED IS KINDNESS — show products as fast as possible, then let the customer refine from there. Every extra question is a failure.
 
-How to help:
-1. If the very first request is vague, ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
-2. FIRST RESULTS RULE (hard): The moment you receive any [Product search results], you MUST present them. Do not ask another question instead of showing results — you may add a brief follow-up question AFTER the recommendation, but never withhold products to ask more questions.
-3. Never ask a question two turns in a row. If you asked last time, this time you recommend.
-4. Present 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
-5. When search returns 0 results: ask ONE specific narrowing question. Do not ask more than two clarifying questions total.
-6. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
-7. Never mention AI, technology, search engines, or databases.
-8. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
+CONTEXT INFERENCE (critical): Read what you are told and do not ask for information already provided.
+- "Mother's Day gift" → you already know it's a gift and likely for their mom. Do NOT ask "who is this for?"
+- "Artsy home decor" → you know the style and category. Do NOT ask for more details — search and show results.
+- "Gift for my dad" → you know the recipient. Do NOT confirm who it's for.
+- If a request contains any clear signal (recipient, occasion, category, style, budget), skip the obvious follow-up and search.
+
+THE 2-QUESTION HARD LIMIT: Across the ENTIRE conversation, you may ask AT MOST 2 clarifying questions before showing products. After 2 questions, present your best available matches regardless.
+
+FIRST RESULTS RULE (non-negotiable): The moment [Product search results] appear, present them immediately. Never ask another question instead of showing results. You may add ONE brief follow-up question AFTER presenting products — e.g. "Want something in a different price range?"
+
+WHEN TO ASK vs. WHEN TO SEARCH:
+- Ask one question ONLY if the request is completely abstract (literally just "I need a gift" with zero other context).
+- Any request with a recipient, occasion, category, or style has enough to search. Search first.
+- After any answer to a clarifying question, you MUST search and show products on the very next turn. No exceptions.
+
+FORMAT: Present 3–4 matches. For each: shop name, item, one sentence on why it fits. Warm and brief.
+
+REFINEMENTS: Echo what you understood: "Here are some artsy options for her kitchen:"
+
+Never mention AI, technology, search engines, or databases. Never ask more than one question at a time.`
 
 function generateSuggestions(
   fullText: string,

@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Head from 'next/head'
 import { useSession } from 'next-auth/react'
-import type { ProductResult } from '../lib/types'
+import type { ProductResult, BusinessResult } from '../lib/types'
 
 type MessageRole = 'user' | 'assistant'
 interface ChatMessage {
   role: MessageRole
   text: string
   products?: ProductResult[]
+  businesses?: BusinessResult[]
   isStreaming?: boolean
 }
 
@@ -134,6 +135,7 @@ export default function Home() {
       let buffer = ''
       let fullText = ''
       let newProducts: ProductResult[] | undefined
+      let newBusinesses: BusinessResult[] | undefined
 
       setMasonMood('searching')
 
@@ -182,6 +184,7 @@ export default function Home() {
                 role: 'assistant',
                 text: fullText,
                 products: newProducts,
+                businesses: newBusinesses,
                 isStreaming: false,
               }
               return updated
@@ -194,6 +197,8 @@ export default function Home() {
             }
           } else if (eventType === 'products') {
             newProducts = parsed.products
+          } else if (eventType === 'businesses') {
+            newBusinesses = parsed.businesses
           } else if (eventType === 'error') {
             setMessages(prev => {
               const updated = [...prev]
@@ -354,6 +359,24 @@ export default function Home() {
                               {updatingProducts && <div className="updating-label">Updating for you…</div>}
                             </div>
                           )}
+                          {msg.businesses && msg.businesses.length > 0 && (
+                            <div className="product-strip">
+                              <div className="strip-header">{msg.businesses.length} local shops</div>
+                              <div className="cards-row">
+                                {msg.businesses.map(b => (
+                                  <a key={b.id} href={b.url} target="_blank" rel="noreferrer" className="product-card business-card">
+                                    <div className="card-img biz-icon">🏪</div>
+                                    <div className="card-shop">{b.name}</div>
+                                    <div className="card-name">{b.town}</div>
+                                    <div className="card-footer">
+                                      {b.category && <span className="biz-cat">{b.category}</span>}
+                                      <span className="local-badge">Local ✓</span>
+                                    </div>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -497,6 +520,9 @@ const styles = `
 
   .product-card { background: var(--cream); border-radius: 8px; padding: 12px; width: 200px; min-width: 200px; border: 1px solid rgba(190,110,70,0.2); text-decoration: none; color: inherit; display: block; transition: box-shadow 150ms; }
   .product-card:hover { box-shadow: 0 4px 16px rgba(15,24,5,0.1); }
+  .business-card { border-color: rgba(1,82,55,0.2); }
+  .biz-icon { background: rgba(1,82,55,0.08) !important; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+  .biz-cat { font-size: 10px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
   .card-img { height: 90px; background: rgba(190,110,70,0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 8px; overflow: hidden; }
   .card-img img { width: 100%; height: 100%; object-fit: cover; }
   .card-shop { font-family: Georgia, serif; font-size: 10px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }

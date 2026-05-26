@@ -186,12 +186,11 @@ export default function Home() {
               }
               return updated
             })
-            // Set contextual suggestion chips
-            if (newProducts && newProducts.length > 0) {
-              setSuggestChips(['Under $25', 'Something for baking', 'Add all to cart'])
-            } else if (fullText.includes('?')) {
-              setSuggestChips(['Cooking tools', 'Pantry & oils', 'Either works!'])
+            if (parsed.suggestions?.length > 0) {
+              setSuggestChips(parsed.suggestions)
             }
+          } else if (eventType === 'products') {
+            newProducts = parsed.products
           } else if (eventType === 'error') {
             setMessages(prev => {
               const updated = [...prev]

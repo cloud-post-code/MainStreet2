@@ -58,15 +58,78 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
 
 const SYSTEM_PROMPT = `You are Mason, a warm and knowledgeable personal shopper for Main Street — a curated collection of local businesses in small-town America.
 
-Your job: help customers find exactly what they need from local shops they can trust.
+Your job: guide customers to find exactly what they need from local shops they can trust.
 
-Rules:
-- Ask at most 1 clarifying question when the request is ambiguous. Never ask 2 questions in a row.
-- When you have product results, present them warmly and specifically. Name the shop. Name the item.
-- For refinements, explicitly echo what you understood: "Here's what I found in blue under $30:"
-- Keep responses warm, brief, and personal. You're their local shopper, not a search engine.
-- Never mention AI, ChatGPT, OpenAI, or technical details.
-- If product data is provided, present those specific items.`
+DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results. If no results are provided, ask a clarifying question instead.
+
+How to help:
+1. If the request is vague (no recipient, no budget, no occasion), ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
+2. Never ask a question two turns in a row. If you asked last time, this time you recommend.
+3. When product results are available, pick the 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
+4. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
+5. Never mention AI, technology, search engines, or databases.
+6. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
+
+function generateSuggestions(
+  fullText: string,
+  products: ProductResult[],
+  messages: MessageParam[]
+): string[] {
+  const isQuestion = fullText.trimEnd().endsWith('?')
+  const masonLower = fullText.toLowerCase()
+
+  // Extract user's original ask for personalisation context
+  const firstUserMsg = messages.find(m => m.role === 'user')
+  const userCtx = (typeof firstUserMsg?.content === 'string' ? firstUserMsg.content : '').toLowerCase()
+  const isSheCtx = /\bshe\b|\bher\b|\bsister\b|\bgirlfriend\b|\bwife\b|\bmom\b|\bmother\b|\bdaughter\b|\bgrandma\b/.test(userCtx)
+  const isHeCtx  = /\bhe\b|\bhim\b|\bbrother\b|\bboyfriend\b|\bhusband\b|\bdad\b|\bfather\b|\bson\b|\bgrandpa\b/.test(userCtx)
+  const isGift   = /\bgift\b|\bpresent\b|\bsister\b|\bbrother\b|\bmother\b|\bfather\b|\bfriend\b|\bpartner\b|\bwife\b|\bhusband\b|\bson\b|\bdaughter\b|\bgrandma\b|\bgrandpa\b/.test(userCtx)
+
+  // When Mason shows products: offer price refinement + escape hatches
+  if (products.length > 0 && !isQuestion) {
+    const prices = products.map(p => p.price).sort((a, b) => a - b)
+    const min = prices[0]
+    let cap: number
+    if (min > 100) cap = Math.round(min * 0.65 / 25) * 25
+    else if (min > 50) cap = Math.round(min * 0.7 / 10) * 10
+    else cap = Math.round(min * 0.75 / 5) * 5
+
+    if (cap >= 10) return [`Under $${cap}`, 'Something more unique', 'These are perfect!']
+    return ['Show me more options', 'Something different?', 'These are perfect!']
+  }
+
+  // When Mason asks a clarifying question: suggest 3 natural answers
+  if (isQuestion) {
+    if (/\bwho\b.{0,30}\bfor\b|\bfor whom\b|\brecipient\b|\bwho.{0,20}buying\b/.test(masonLower)) {
+      return ["It's for me", "It's a gift", "For my whole family"]
+    }
+    if (/\bbudget\b|\bspend\b|\bhow much\b|\bprice range\b|\bafford\b|\bwilling to pay\b/.test(masonLower)) {
+      if (isGift) {
+        const pronoun = isSheCtx ? 'she' : isHeCtx ? 'he' : 'they'
+        return ["Under $30", "Under $50", `No limit — ${pronoun}'s worth it!`]
+      }
+      return ["Under $30", "Under $50", "No budget limit!"]
+    }
+    if (/\boccasion\b|\bevent\b|\bbirthday\b|\bholiday\b|\bcelebrat\b|\bspecial\b/.test(masonLower)) {
+      return ["Everyday use", "Special occasion", "It's a birthday!"]
+    }
+    if (/\bstyle\b|\baesthetic\b|\blook and feel\b|\bdesign prefer\b/.test(masonLower)) {
+      return ["Natural & rustic", "Modern & clean", "Either works!"]
+    }
+    if (/\bcolor\b|\bcolour prefer\b/.test(masonLower)) {
+      return ["No preference", "Earth tones", "Something colorful!"]
+    }
+    if (/\bage\b|\bhow old\b|\bchild\b|\bkid\b|\bteen\b|\byoung\b/.test(masonLower)) {
+      return ["Young child (2–8)", "Teenager", "Adult"]
+    }
+    if (/\btype\b|\bcategor\b|\bkind of\b|\bwhich type\b/.test(masonLower)) {
+      return ["Something practical", "Something fun!", "Surprise me!"]
+    }
+    return ["Tell me more", "Any recommendations?", "Surprise me!"]
+  }
+
+  return []
+}
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -173,7 +236,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (shouldSearch(updatedMessages, conversation.turn_count)) {
     derivedQuery = await deriveSearchQuery(updatedMessages)
     if (derivedQuery) {
-      productResults = await searchProducts(derivedQuery, 5)
+      productResults = await searchProducts(derivedQuery, 4)
     }
   }
 
@@ -271,7 +334,12 @@ export default async function handler(req: Request): Promise<Response> {
       if (updateError) {
         await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
       } else {
-        await write(sseEvent('done', { turnCount: conversation!.turn_count + 1 }))
+        const isAskingQuestion = fullText.trimEnd().endsWith('?')
+        if (productResults.length > 0 && !isAskingQuestion) {
+          await write(sseEvent('products', { products: productResults }))
+        }
+        const suggestions = generateSuggestions(fullText, productResults, updatedMessages)
+        await write(sseEvent('done', { turnCount: conversation!.turn_count + 1, suggestions }))
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {

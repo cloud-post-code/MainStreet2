@@ -17,15 +17,11 @@ function errorEvent(code: number, type: ChatErrorCode, message: string, retry: b
   return sseEvent('error', payload)
 }
 
-function shouldSearch(messages: MessageParam[], turnCount: number): boolean {
-  if (turnCount === 0) return true
-  if (turnCount >= 2) return true
-  const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
-  if (!lastAssistant) return true
-  const content = typeof lastAssistant.content === 'string'
-    ? lastAssistant.content
-    : lastAssistant.content.map((b: { type: string; text?: string }) => b.type === 'text' ? b.text : '').join('')
-  return !content.trim().endsWith('?')
+function shouldSearch(_messages: MessageParam[], _turnCount: number): boolean {
+  // Always search — every user message refines the query and gives more context.
+  // Skipping search after Mason asks a question was causing Mason to go 2+ turns
+  // without any DB lookup, leading to repeated clarifying questions.
+  return true
 }
 
 // Convert our MessageParam history to OpenAI chat format
@@ -65,15 +61,16 @@ const SYSTEM_PROMPT = `You are Mason, a warm and knowledgeable personal shopper 
 
 Your job: guide customers to find exactly what they need from local shops they can trust.
 
-DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results. If no results are provided, ask a clarifying question instead.
+DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results.
 
 How to help:
 1. If the request is vague (no recipient, no budget, no occasion), ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
-2. Never ask a question two turns in a row. If you asked last time, this time you recommend.
+2. HARD LIMIT: Never ask a question two turns in a row. Count your own previous messages — if your last response was a question, this response MUST be a recommendation, not another question.
 3. When product results are available, pick the 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
-4. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
-5. Never mention AI, technology, search engines, or databases.
-6. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
+4. When search returns 0 results AND you already asked a question last turn: say "I'm still hunting for that exact item from our local shops — here's what I found nearby that she might love:" and recommend the closest available items, OR say "Our local shops don't carry that right now, but they do have [category] — want me to show you those?"
+5. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
+6. Never mention AI, technology, search engines, or databases.
+7. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {

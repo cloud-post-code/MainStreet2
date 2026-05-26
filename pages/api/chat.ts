@@ -125,10 +125,13 @@ function generateSuggestions(
     if (/\bage\b|\bhow old\b|\bchild\b|\bkid\b|\bteen\b|\byoung\b/.test(masonLower)) {
       return ["Young child (2–8)", "Teenager", "Adult"]
     }
+    if (/\binterest\b|\bhobby\b|\bhobbies\b|\bpassion\b|\binto\b/.test(masonLower)) {
+      return ["Something practical", "Something fun!", "Surprise me!"]
+    }
     if (/\btype\b|\bcategor\b|\bkind of\b|\bwhich type\b/.test(masonLower)) {
       return ["Something practical", "Something fun!", "Surprise me!"]
     }
-    return ["Tell me more", "Any recommendations?", "Surprise me!"]
+    return ["Tell me more", "Any suggestions?", "Surprise me!"]
   }
 
   return []

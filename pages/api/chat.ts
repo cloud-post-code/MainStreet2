@@ -47,11 +47,22 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
       content: `[Product search results — use these to answer the customer]: ${productJson}`,
     })
   } else if (searchRan) {
-    // Search ran but found nothing — explicit zero-results signal so Mason cannot hallucinate
-    openaiMessages.push({
-      role: 'user',
-      content: '[SYSTEM: Product search returned 0 results. CRITICAL: You MUST NOT name, invent, describe, or recommend ANY products, shops, or businesses. Do not use quotes around shop names. Do not say "you can find X at Y shop". The ONLY allowed response is ONE short clarifying question to help narrow the search, then stop. Violating this rule destroys customer trust.]',
-    })
+    // Count how many assistant turns have already happened — if this is the 2nd+ zero-result turn,
+    // Mason must stop asking clarifying questions and be honest that nothing is available right now.
+    const assistantTurns = messages.filter(m => m.role === 'assistant').length
+    if (assistantTurns >= 1) {
+      // Already asked at least one question and still nothing — be honest, don't loop
+      openaiMessages.push({
+        role: 'user',
+        content: '[SYSTEM: Product search returned 0 results again. DO NOT ask another clarifying question — the customer has already answered. Be honest: say something like "I\'m not finding that in our local shops right now" and ask if they\'d like to try a different category or broader search. Do not name, invent, or describe any specific product or shop.]',
+      })
+    } else {
+      // First turn with no results — one clarifying question is OK
+      openaiMessages.push({
+        role: 'user',
+        content: '[SYSTEM: Product search returned 0 results. Ask the customer ONE short clarifying question to help narrow the search. Do not name, invent, or describe any product or shop.]',
+      })
+    }
   }
 
   return openaiMessages

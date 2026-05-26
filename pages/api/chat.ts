@@ -29,7 +29,7 @@ function shouldSearch(messages: MessageParam[], turnCount: number): boolean {
 }
 
 // Convert our MessageParam history to OpenAI chat format
-function toOpenAIMessages(messages: MessageParam[], productResults: ProductResult[]): Array<{ role: string; content: string }> {
+function toOpenAIMessages(messages: MessageParam[], productResults: ProductResult[], searchRan: boolean): Array<{ role: string; content: string }> {
   const openaiMessages: Array<{ role: string; content: string }> = []
 
   for (const m of messages) {
@@ -37,7 +37,6 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
     openaiMessages.push({ role: m.role, content })
   }
 
-  // Inject product results as a system-style context message after user's last message
   if (productResults.length > 0) {
     const productJson = JSON.stringify(productResults.map(p => ({
       name: p.name,
@@ -50,6 +49,12 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
     openaiMessages.push({
       role: 'user',
       content: `[Product search results — use these to answer the customer]: ${productJson}`,
+    })
+  } else if (searchRan) {
+    // Search ran but found nothing — explicit zero-results signal so Mason cannot hallucinate
+    openaiMessages.push({
+      role: 'user',
+      content: '[Product search returned 0 results from the database. DO NOT name, describe, or recommend any products or shops. Ask the customer one clarifying question to help narrow the search.]',
     })
   }
 
@@ -179,7 +184,8 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  const openaiMessages = toOpenAIMessages(updatedMessages, productResults)
+  const searchRan = derivedQuery !== null
+  const openaiMessages = toOpenAIMessages(updatedMessages, productResults, searchRan)
 
   const isDebug = process.env.VERCEL_ENV !== 'production' &&
     new URL(req.url).searchParams.get('debug') === '1'

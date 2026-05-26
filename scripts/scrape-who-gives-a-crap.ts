@@ -189,7 +189,7 @@ async function main() {
     const productUrl = `${SHOP_URL}/products/${product.handle}`
 
     try {
-      const embedInput = cleanDesc ? `${cleanName} ${cleanDesc}` : cleanName
+      const embedInput = [businessName, cleanName, cleanDesc, !isNaN(price) ? `$${price}` : ''].filter(Boolean).join(' ')
       const embedding = await embedText(embedInput)
 
       batch.push({

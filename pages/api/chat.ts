@@ -50,7 +50,7 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
     // Search ran but found nothing — explicit zero-results signal so Mason cannot hallucinate
     openaiMessages.push({
       role: 'user',
-      content: '[Product search returned 0 results from the database. DO NOT name, describe, or recommend any products or shops. Ask the customer one clarifying question to help narrow the search.]',
+      content: '[SYSTEM: Product search returned 0 results. CRITICAL: You MUST NOT name, invent, describe, or recommend ANY products, shops, or businesses. Do not use quotes around shop names. Do not say "you can find X at Y shop". The ONLY allowed response is ONE short clarifying question to help narrow the search, then stop. Violating this rule destroys customer trust.]',
     })
   }
 

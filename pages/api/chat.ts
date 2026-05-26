@@ -1,9 +1,12 @@
-export const runtime = 'edge'
-
+import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '../../lib/supabase'
 import { deriveSearchQuery, searchProducts } from '../../lib/search'
 import { resolveCustomerId } from '../../lib/auth'
 import type { ConversationRow, ChatErrorCode, ChatErrorEvent, MessageParam, ProductResult } from '../../lib/types'
+
+export const config = {
+  api: { responseLimit: false },
+}
 
 const TURN_LIMIT = 8
 const TTL_MS = 24 * 60 * 60 * 1000
@@ -18,13 +21,9 @@ function errorEvent(code: number, type: ChatErrorCode, message: string, retry: b
 }
 
 function shouldSearch(_messages: MessageParam[], _turnCount: number): boolean {
-  // Always search — every user message refines the query and gives more context.
-  // Skipping search after Mason asks a question was causing Mason to go 2+ turns
-  // without any DB lookup, leading to repeated clarifying questions.
   return true
 }
 
-// Convert our MessageParam history to OpenAI chat format
 function toOpenAIMessages(messages: MessageParam[], productResults: ProductResult[], searchRan: boolean): Array<{ role: string; content: string }> {
   const openaiMessages: Array<{ role: string; content: string }> = []
 
@@ -47,7 +46,6 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
       content: `[Product search results — use these to answer the customer]: ${productJson}`,
     })
   } else if (searchRan) {
-    // Search ran but found nothing — explicit zero-results signal so Mason cannot hallucinate
     openaiMessages.push({
       role: 'user',
       content: '[Product search returned 0 results from the database. DO NOT name, describe, or recommend any products or shops. Ask the customer one clarifying question to help narrow the search.]',
@@ -73,231 +71,230 @@ How to help:
 7. Never mention AI, technology, search engines, or databases.
 8. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
-    return new Response(errorEvent(405, 'internal_error', 'Method not allowed', false), {
-      status: 405,
-      headers: { 'Content-Type': 'text/event-stream' },
-    })
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.status(405).end(errorEvent(405, 'internal_error', 'Method not allowed', false))
+    return
   }
 
-  const { sessionId, message } = await req.json() as { sessionId?: string; message?: string }
-  if (!message?.trim()) {
-    return new Response(errorEvent(400, 'internal_error', 'message is required', false), {
-      status: 400,
-      headers: { 'Content-Type': 'text/event-stream' },
-    })
-  }
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('X-Accel-Buffering', 'no')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
 
-  const supabase = getSupabaseClient()
-  const identity = await resolveCustomerId(req)
-  const fingerprint = identity.id
-  const isRelaxed = process.env.FINGERPRINT_ENFORCEMENT === 'relaxed'
-  const isOff = process.env.FINGERPRINT_ENFORCEMENT === 'off'
-
-  let conversation: ConversationRow | null = null
-  let isNewSession = false
-
-  if (sessionId) {
-    const { data } = await supabase
-      .from('conversations')
-      .select('*')
-      .eq('id', sessionId)
-      .single()
-
-    if (!data) {
-      return new Response(errorEvent(404, 'session_not_found', 'Session not found or expired', false), {
-        status: 404,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    }
-
-    if (new Date(data.expires_at) < new Date()) {
-      return new Response(errorEvent(404, 'session_expired', 'Session has expired', false), {
-        status: 404,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    }
-
-    // Verify ownership: authenticated users check user_id, guests check fingerprint
-    if (identity.isAuthenticated) {
-      if (data.user_id && data.user_id !== identity.id) {
-        return new Response(errorEvent(404, 'session_not_found', 'Session not found or expired', false), {
-          status: 404,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      }
-    } else if (!isOff && data.session_fingerprint) {
-      const fingerprintMatches = isRelaxed
-        ? fingerprint.startsWith(data.session_fingerprint.slice(0, 16))
-        : fingerprint === data.session_fingerprint
-      if (!fingerprintMatches) {
-        return new Response(errorEvent(404, 'session_not_found', 'Session not found or expired', false), {
-          status: 404,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      }
-    }
-
-    if (data.turn_count >= TURN_LIMIT) {
-      return new Response(errorEvent(422, 'turn_limit_exceeded', 'Start a new conversation to keep shopping', false), {
-        status: 422,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    }
-
-    conversation = data as ConversationRow
-  } else {
-    isNewSession = true
-    const expiresAt = new Date(Date.now() + TTL_MS).toISOString()
-    const newRow: Record<string, unknown> = {
-      messages: [],
-      turn_count: 0,
-      version: 0,
-      expires_at: expiresAt,
-      session_fingerprint: identity.isAuthenticated ? null : fingerprint,
-      user_id: identity.isAuthenticated ? identity.id : null,
-    }
-    const { data, error } = await supabase.from('conversations').insert(newRow).select().single()
-    if (error || !data) {
-      return new Response(errorEvent(500, 'internal_error', 'Could not start session', false), {
-        status: 500,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    }
-    conversation = data as ConversationRow
-  }
-
-  const updatedMessages: MessageParam[] = [
-    ...conversation.messages,
-    { role: 'user', content: message },
-  ]
-
-  let productResults: ProductResult[] = []
-  let derivedQuery: string | null = null
-  if (shouldSearch(updatedMessages, conversation.turn_count)) {
-    derivedQuery = await deriveSearchQuery(updatedMessages)
-    if (derivedQuery) {
-      productResults = await searchProducts(derivedQuery, 4)
+  const write = (chunk: string) => {
+    res.write(chunk)
+    // Flush if available (some Node.js http adapters support this)
+    if (typeof (res as unknown as { flush?: () => void }).flush === 'function') {
+      (res as unknown as { flush: () => void }).flush()
     }
   }
+  const end = () => res.end()
 
-  const searchRan = derivedQuery !== null
-  const openaiMessages = toOpenAIMessages(updatedMessages, productResults, searchRan)
+  try {
+    const { sessionId, message } = req.body as { sessionId?: string; message?: string }
+    if (!message?.trim()) {
+      write(errorEvent(400, 'internal_error', 'message is required', false))
+      end()
+      return
+    }
 
-  const isDebug = process.env.VERCEL_ENV !== 'production' &&
-    new URL(req.url).searchParams.get('debug') === '1'
+    const proxyHeaders: Record<string, string> = {}
+    const rawCookie = req.headers['cookie']
+    if (rawCookie) proxyHeaders['cookie'] = Array.isArray(rawCookie) ? rawCookie.join('; ') : rawCookie
+    const rawUA = req.headers['user-agent']
+    if (rawUA) proxyHeaders['user-agent'] = Array.isArray(rawUA) ? rawUA[0] : rawUA
+    const rawXFF = req.headers['x-forwarded-for']
+    if (rawXFF) proxyHeaders['x-forwarded-for'] = Array.isArray(rawXFF) ? rawXFF[0] : rawXFF
+    const webReq = new Request('http://localhost/api/chat', { headers: proxyHeaders })
 
-  const stream = new TransformStream()
-  const writer = stream.writable.getWriter()
-  const encoder = new TextEncoder()
-  const write = (chunk: string) => writer.write(encoder.encode(chunk))
+    const supabase = getSupabaseClient()
+    const identity = await resolveCustomerId(webReq)
+    const fingerprint = identity.id
+    const isRelaxed = process.env.FINGERPRINT_ENFORCEMENT === 'relaxed'
+    const isOff = process.env.FINGERPRINT_ENFORCEMENT === 'off'
 
-  ;(async () => {
-    try {
-      if (isNewSession) {
-        await write(sseEvent('session', { sessionId: conversation!.id }))
-      }
+    let conversation: ConversationRow | null = null
+    let isNewSession = false
 
-      if (isDebug && productResults.length > 0) {
-        await write(sseEvent('debug', { derivedQuery, productCount: productResults.length }))
-      }
+    if (sessionId) {
+      const { data } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('id', sessionId)
+        .single()
 
-      const openaiResp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          max_tokens: 1024,
-          stream: true,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            ...openaiMessages,
-          ],
-        }),
-        signal: req.signal,
-      })
-
-      if (!openaiResp.ok) {
-        const err = await openaiResp.text()
-        console.error('OpenAI error:', err)
-        await write(errorEvent(500, 'internal_error', 'Something went wrong', false))
+      if (!data) {
+        write(errorEvent(404, 'session_not_found', 'Session not found or expired', false))
+        end()
         return
       }
 
-      const reader = openaiResp.body!.getReader()
-      const dec = new TextDecoder()
-      let fullText = ''
-      let buf = ''
+      if (new Date(data.expires_at) < new Date()) {
+        write(errorEvent(404, 'session_expired', 'Session has expired', false))
+        end()
+        return
+      }
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += dec.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const payload = line.slice(6).trim()
-          if (payload === '[DONE]') continue
-          try {
-            const chunk = JSON.parse(payload) as { choices: Array<{ delta: { content?: string } }> }
-            const text = chunk.choices[0]?.delta?.content ?? ''
-            if (text) {
-              fullText += text
-              await write(sseEvent('delta', { text }))
-            }
-          } catch {
-            // malformed chunk — skip
-          }
+      if (identity.isAuthenticated) {
+        if (data.user_id && data.user_id !== identity.id) {
+          write(errorEvent(404, 'session_not_found', 'Session not found or expired', false))
+          end()
+          return
+        }
+      } else if (!isOff && data.session_fingerprint) {
+        const fingerprintMatches = isRelaxed
+          ? fingerprint.startsWith(data.session_fingerprint.slice(0, 16))
+          : fingerprint === data.session_fingerprint
+        if (!fingerprintMatches) {
+          write(errorEvent(404, 'session_not_found', 'Session not found or expired', false))
+          end()
+          return
         }
       }
 
-      const assistantMessage: MessageParam = { role: 'assistant', content: fullText }
-      const finalMessages: MessageParam[] = [...updatedMessages, assistantMessage]
-
-      const newExpiry = new Date(Date.now() + TTL_MS).toISOString()
-      const { error: updateError } = await supabase
-        .from('conversations')
-        .update({
-          messages: finalMessages,
-          last_search_results: productResults.length > 0 ? productResults : conversation!.last_search_results,
-          last_derived_query: derivedQuery ?? conversation!.last_derived_query,
-          turn_count: conversation!.turn_count + 1,
-          version: conversation!.version + 1,
-          expires_at: newExpiry,
-        })
-        .eq('id', conversation!.id)
-        .eq('version', conversation!.version)
-
-      if (updateError) {
-        await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
-      } else {
-        // Emit product cards only when Mason is recommending (not asking a question)
-        const isAskingQuestion = fullText.trimEnd().endsWith('?')
-        if (productResults.length > 0 && !isAskingQuestion) {
-          await write(sseEvent('products', { products: productResults }))
-        }
-        await write(sseEvent('done', { turnCount: conversation!.turn_count + 1 }))
+      if (data.turn_count >= TURN_LIMIT) {
+        write(errorEvent(422, 'turn_limit_exceeded', 'Start a new conversation to keep shopping', false))
+        end()
+        return
       }
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        await write(errorEvent(500, 'internal_error', 'Something went wrong', false))
+
+      conversation = data as ConversationRow
+    } else {
+      isNewSession = true
+      const expiresAt = new Date(Date.now() + TTL_MS).toISOString()
+      const newRow: Record<string, unknown> = {
+        messages: [],
+        turn_count: 0,
+        version: 0,
+        expires_at: expiresAt,
+        session_fingerprint: identity.isAuthenticated ? null : fingerprint,
+        user_id: identity.isAuthenticated ? identity.id : null,
       }
-    } finally {
-      await writer.close()
+      const { data, error } = await supabase.from('conversations').insert(newRow).select().single()
+      if (error || !data) {
+        write(errorEvent(500, 'internal_error', 'Could not start session', false))
+        end()
+        return
+      }
+      conversation = data as ConversationRow
     }
-  })()
 
-  return new Response(stream.readable, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-    },
-  })
+    const updatedMessages: MessageParam[] = [
+      ...conversation.messages,
+      { role: 'user', content: message },
+    ]
+
+    let productResults: ProductResult[] = []
+    let derivedQuery: string | null = null
+    if (shouldSearch(updatedMessages, conversation.turn_count)) {
+      derivedQuery = await deriveSearchQuery(updatedMessages)
+      if (derivedQuery) {
+        productResults = await searchProducts(derivedQuery, 4)
+      }
+    }
+
+    const searchRan = derivedQuery !== null
+    const openaiMessages = toOpenAIMessages(updatedMessages, productResults, searchRan)
+
+    const isDebug = process.env.VERCEL_ENV !== 'production' &&
+      (req.query.debug === '1')
+
+    if (isNewSession) {
+      write(sseEvent('session', { sessionId: conversation.id }))
+    }
+
+    if (isDebug && productResults.length > 0) {
+      write(sseEvent('debug', { derivedQuery, productCount: productResults.length }))
+    }
+
+    const openaiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        max_tokens: 1024,
+        stream: true,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...openaiMessages,
+        ],
+      }),
+    })
+
+    if (!openaiResp.ok) {
+      const err = await openaiResp.text()
+      console.error('OpenAI error:', err)
+      write(errorEvent(500, 'internal_error', 'Something went wrong', false))
+      end()
+      return
+    }
+
+    const reader = openaiResp.body!.getReader()
+    const dec = new TextDecoder()
+    let fullText = ''
+    let buf = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6).trim()
+        if (payload === '[DONE]') continue
+        try {
+          const chunk = JSON.parse(payload) as { choices: Array<{ delta: { content?: string } }> }
+          const text = chunk.choices[0]?.delta?.content ?? ''
+          if (text) {
+            fullText += text
+            write(sseEvent('delta', { text }))
+          }
+        } catch {
+          // malformed chunk — skip
+        }
+      }
+    }
+
+    const assistantMessage: MessageParam = { role: 'assistant', content: fullText }
+    const finalMessages: MessageParam[] = [...updatedMessages, assistantMessage]
+
+    const newExpiry = new Date(Date.now() + TTL_MS).toISOString()
+    const { error: updateError } = await supabase
+      .from('conversations')
+      .update({
+        messages: finalMessages,
+        last_search_results: productResults.length > 0 ? productResults : conversation.last_search_results,
+        last_derived_query: derivedQuery ?? conversation.last_derived_query,
+        turn_count: conversation.turn_count + 1,
+        version: conversation.version + 1,
+        expires_at: newExpiry,
+      })
+      .eq('id', conversation.id)
+      .eq('version', conversation.version)
+
+    if (updateError) {
+      write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
+    } else {
+      const isAskingQuestion = fullText.trimEnd().endsWith('?')
+      if (productResults.length > 0 && !isAskingQuestion) {
+        write(sseEvent('products', { products: productResults }))
+      }
+      write(sseEvent('done', { turnCount: conversation.turn_count + 1 }))
+    }
+  } catch (err) {
+    if ((err as Error).name !== 'AbortError') {
+      write(errorEvent(500, 'internal_error', 'Something went wrong', false))
+    }
+  } finally {
+    end()
+  }
 }

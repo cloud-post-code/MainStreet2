@@ -131,7 +131,7 @@ export async function scrapeAndUpsert(
       try {
         const cleanName = sanitizeProductText(product.name)
         const cleanDesc = product.description ? sanitizeProductText(product.description) : ''
-        const embedInput = cleanDesc ? `${cleanName} ${cleanDesc}` : cleanName
+        const embedInput = [target.businessName, cleanName, cleanDesc, product.price != null ? `$${product.price}` : ''].filter(Boolean).join(' ')
         const embedding = await embedText(embedInput)
 
         const existing = priceByUrl.get(product.url)

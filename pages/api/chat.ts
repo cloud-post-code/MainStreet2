@@ -64,13 +64,14 @@ Your job: guide customers to find exactly what they need from local shops they c
 DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results.
 
 How to help:
-1. If the request is vague (no recipient, no budget, no occasion), ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
-2. HARD LIMIT: Never ask a question two turns in a row. Count your own previous messages — if your last response was a question, this response MUST be a recommendation, not another question.
-3. When product results are available, pick the 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
-4. When search returns 0 results AND you already asked a question last turn: say "I'm still hunting for that exact item from our local shops — here's what I found nearby that she might love:" and recommend the closest available items, OR say "Our local shops don't carry that right now, but they do have [category] — want me to show you those?"
-5. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
-6. Never mention AI, technology, search engines, or databases.
-7. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
+1. ALWAYS show product cards when [Product search results] are available — even on the very first turn if results exist. Never skip showing products when the database returned them.
+2. When showing products, pick the 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
+3. After showing products, you MAY ask one optional follow-up question if you're genuinely unsure about something important (e.g. "Do you want to stay under $50?" or "Is this for indoor or outdoor use?"). Keep it short — one question max, and only if truly helpful.
+4. If the request is very vague with no context at all (no recipient, no occasion, no category), ask ONE focused clarifying question first — but then show products on the very next turn regardless.
+5. When search returns 0 results, say you're still looking and ask one targeted question to narrow the search. Never name shops or products that aren't in the results.
+6. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
+7. Never mention AI, technology, search engines, or databases.
+8. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -276,9 +277,8 @@ export default async function handler(req: Request): Promise<Response> {
       if (updateError) {
         await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
       } else {
-        // Emit product cards only when Mason is recommending (not asking a question)
-        const isAskingQuestion = fullText.trimEnd().endsWith('?')
-        if (productResults.length > 0 && !isAskingQuestion) {
+        // Always emit product cards when results exist — Mason can show products and ask a follow-up simultaneously
+        if (productResults.length > 0) {
           await write(sseEvent('products', { products: productResults }))
         }
         await write(sseEvent('done', { turnCount: conversation!.turn_count + 1 }))

@@ -362,53 +362,50 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Input area */}
-            {atTurnLimit ? (
-              <div className="turn-limit-bar">
-                <button className="limit-cta" onClick={() => sendMessage('Show me your best picks')}>
-                  See Mason&apos;s best picks →
-                </button>
-                <button className="restart-link" onClick={() => { localStorage.removeItem('ms_session'); window.location.reload() }}>
-                  Start a new search
-                </button>
-              </div>
-            ) : (
-              <form className="input-bar" onSubmit={handleSubmit}>
-                {showSignupNudge && !isAuthenticated && (
-                  <div className="signup-nudge">
-                    <span>🧱 Want to save this conversation? </span>
-                    <a href="/signup" className="nudge-link">Create a free account →</a>
-                    <button
-                      type="button"
-                      className="nudge-dismiss"
-                      onClick={() => {
-                        sessionStorage.setItem('ms_nudge_dismissed', '1')
-                        setShowSignupNudge(false)
-                      }}
-                    >×</button>
-                  </div>
-                )}
-                {suggestChips.length > 0 && (
-                  <div className="chips">
-                    {suggestChips.map(chip => (
-                      <button key={chip} type="button" className="chip" onClick={() => handleChip(chip)}>{chip}</button>
-                    ))}
-                  </div>
-                )}
-                <div className="input-row">
-                  <input
-                    className="chat-input"
-                    placeholder="Refine your search or ask a question…"
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    disabled={isLoading}
-                  />
-                  <button type="submit" className={`send-btn ${input.trim().length < 2 ? 'disabled' : ''}`} disabled={input.trim().length < 2 || isLoading}>
-                    →
+            {/* Input area — always visible so the user can always keep chatting */}
+            <form className="input-bar" onSubmit={handleSubmit}>
+              {showSignupNudge && !isAuthenticated && (
+                <div className="signup-nudge">
+                  <span>🧱 Want to save this conversation? </span>
+                  <a href="/signup" className="nudge-link">Create a free account →</a>
+                  <button
+                    type="button"
+                    className="nudge-dismiss"
+                    onClick={() => {
+                      sessionStorage.setItem('ms_nudge_dismissed', '1')
+                      setShowSignupNudge(false)
+                    }}
+                  >×</button>
+                </div>
+              )}
+              {atTurnLimit && (
+                <div className="limit-note">
+                  <span>Reached the search limit — </span>
+                  <button type="button" className="restart-inline" onClick={() => { localStorage.removeItem('ms_session'); window.location.reload() }}>
+                    start a new search
                   </button>
                 </div>
-              </form>
-            )}
+              )}
+              {suggestChips.length > 0 && (
+                <div className="chips">
+                  {suggestChips.map(chip => (
+                    <button key={chip} type="button" className="chip" onClick={() => handleChip(chip)}>{chip}</button>
+                  ))}
+                </div>
+              )}
+              <div className="input-row">
+                <input
+                  className="chat-input"
+                  placeholder="Refine your search or ask a question…"
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  disabled={isLoading || atTurnLimit}
+                />
+                <button type="submit" className={`send-btn ${input.trim().length < 2 || atTurnLimit ? 'disabled' : ''}`} disabled={input.trim().length < 2 || isLoading || atTurnLimit}>
+                  →
+                </button>
+              </div>
+            </form>
           </div>
         </div>
         <style suppressHydrationWarning>{styles}</style>
@@ -519,10 +516,9 @@ const styles = `
   .send-btn { background: var(--primary); color: var(--cream); border: none; border-radius: 6px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; flex-shrink: 0; }
   .send-btn.disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* TURN LIMIT */
-  .turn-limit-bar { background: var(--cream); border: 1px solid rgba(190,110,70,0.25); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
-  .limit-cta { background: var(--primary); color: var(--cream); border: none; border-radius: 6px; padding: 12px 20px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; }
-  .restart-link { font-size: 12px; color: var(--muted); text-align: center; text-decoration: underline; cursor: pointer; background: none; border: none; }
+  /* TURN LIMIT NOTE */
+  .limit-note { font-size: 12px; color: var(--muted); }
+  .restart-inline { background: none; border: none; padding: 0; font-size: 12px; color: var(--primary); text-decoration: underline; cursor: pointer; font-weight: 500; }
 
   @media (max-width: 640px) {
     .chat-layout { grid-template-columns: 44px 1fr; padding: 12px; }

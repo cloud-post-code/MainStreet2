@@ -378,14 +378,6 @@ export default function Home() {
                   >×</button>
                 </div>
               )}
-              {atTurnLimit && (
-                <div className="limit-note">
-                  <span>Reached the search limit — </span>
-                  <button type="button" className="restart-inline" onClick={() => { localStorage.removeItem('ms_session'); window.location.reload() }}>
-                    start a new search
-                  </button>
-                </div>
-              )}
               {suggestChips.length > 0 && (
                 <div className="chips">
                   {suggestChips.map(chip => (
@@ -396,14 +388,22 @@ export default function Home() {
               <div className="input-row">
                 <input
                   className="chat-input"
-                  placeholder="Refine your search or ask a question…"
+                  placeholder={atTurnLimit ? 'Start a new search to continue…' : 'Refine your search or ask a question…'}
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   disabled={isLoading || atTurnLimit}
                 />
-                <button type="submit" className={`send-btn ${input.trim().length < 2 || atTurnLimit ? 'disabled' : ''}`} disabled={input.trim().length < 2 || isLoading || atTurnLimit}>
-                  →
-                </button>
+                {atTurnLimit ? (
+                  <button
+                    type="button"
+                    className="send-btn"
+                    onClick={() => { localStorage.removeItem('ms_session'); window.location.reload() }}
+                  >↺</button>
+                ) : (
+                  <button type="submit" className={`send-btn ${input.trim().length < 2 ? 'disabled' : ''}`} disabled={input.trim().length < 2 || isLoading}>
+                    →
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -516,9 +516,8 @@ const styles = `
   .send-btn { background: var(--primary); color: var(--cream); border: none; border-radius: 6px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; flex-shrink: 0; }
   .send-btn.disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* TURN LIMIT NOTE */
-  .limit-note { font-size: 12px; color: var(--muted); }
-  .restart-inline { background: none; border: none; padding: 0; font-size: 12px; color: var(--primary); text-decoration: underline; cursor: pointer; font-weight: 500; }
+  /* TURN LIMIT — input is always shown; at limit, placeholder changes and restart button appears */
+  .chat-input:disabled { opacity: 0.5; }
 
   @media (max-width: 640px) {
     .chat-layout { grid-template-columns: 44px 1fr; padding: 12px; }

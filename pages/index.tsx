@@ -192,6 +192,8 @@ export default function Home() {
             } else if (fullText.includes('?')) {
               setSuggestChips(['Cooking tools', 'Pantry & oils', 'Either works!'])
             }
+          } else if (eventType === 'products') {
+            newProducts = parsed.products
           } else if (eventType === 'error') {
             setMessages(prev => {
               const updated = [...prev]

@@ -17,19 +17,15 @@ function errorEvent(code: number, type: ChatErrorCode, message: string, retry: b
   return sseEvent('error', payload)
 }
 
-function shouldSearch(messages: MessageParam[], turnCount: number): boolean {
-  if (turnCount === 0) return true
-  if (turnCount >= 2) return true
-  const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
-  if (!lastAssistant) return true
-  const content = typeof lastAssistant.content === 'string'
-    ? lastAssistant.content
-    : lastAssistant.content.map((b: { type: string; text?: string }) => b.type === 'text' ? b.text : '').join('')
-  return !content.trim().endsWith('?')
+function shouldSearch(_messages: MessageParam[], _turnCount: number): boolean {
+  // Always search — every user message refines the query and gives more context.
+  // Skipping search after Mason asks a question was causing Mason to go 2+ turns
+  // without any DB lookup, leading to repeated clarifying questions.
+  return true
 }
 
 // Convert our MessageParam history to OpenAI chat format
-function toOpenAIMessages(messages: MessageParam[], productResults: ProductResult[]): Array<{ role: string; content: string }> {
+function toOpenAIMessages(messages: MessageParam[], productResults: ProductResult[], searchRan: boolean): Array<{ role: string; content: string }> {
   const openaiMessages: Array<{ role: string; content: string }> = []
 
   for (const m of messages) {
@@ -37,7 +33,6 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
     openaiMessages.push({ role: m.role, content })
   }
 
-  // Inject product results as a system-style context message after user's last message
   if (productResults.length > 0) {
     const productJson = JSON.stringify(productResults.map(p => ({
       name: p.name,
@@ -51,6 +46,12 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
       role: 'user',
       content: `[Product search results — use these to answer the customer]: ${productJson}`,
     })
+  } else if (searchRan) {
+    // Search ran but found nothing — explicit zero-results signal so Mason cannot hallucinate
+    openaiMessages.push({
+      role: 'user',
+      content: '[Product search returned 0 results from the database. DO NOT name, describe, or recommend any products or shops. Ask the customer one clarifying question to help narrow the search.]',
+    })
   }
 
   return openaiMessages
@@ -63,12 +64,14 @@ Your job: guide customers to find exactly what they need from local shops they c
 DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results. If no results are provided, ask a clarifying question instead.
 
 How to help:
-1. If the request is vague (no recipient, no budget, no occasion), ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
-2. Never ask a question two turns in a row. If you asked last time, this time you recommend.
-3. When product results are available, pick the 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
-4. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
-5. Never mention AI, technology, search engines, or databases.
-6. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
+1. If the very first request is vague, ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
+2. FIRST RESULTS RULE (hard): The moment you receive any [Product search results], you MUST present them. Do not ask another question instead of showing results — you may add a brief follow-up question AFTER the recommendation, but never withhold products to ask more questions.
+3. Never ask a question two turns in a row. If you asked last time, this time you recommend.
+4. Present 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
+5. When search returns 0 results: ask ONE specific narrowing question. Do not ask more than two clarifying questions total.
+6. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
+7. Never mention AI, technology, search engines, or databases.
+8. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
 
 function generateSuggestions(
   fullText: string,
@@ -246,7 +249,8 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  const openaiMessages = toOpenAIMessages(updatedMessages, productResults)
+  const searchRan = derivedQuery !== null
+  const openaiMessages = toOpenAIMessages(updatedMessages, productResults, searchRan)
 
   const isDebug = process.env.VERCEL_ENV !== 'production' &&
     new URL(req.url).searchParams.get('debug') === '1'
@@ -340,6 +344,8 @@ export default async function handler(req: Request): Promise<Response> {
       if (updateError) {
         await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
       } else {
+        // isQuestion: uses includes('?') because Mason often appends an encouragement
+        // sentence ending in '!' after the actual question, so endsWith('?') misses it.
         const isAskingQuestion = fullText.includes('?') && productResults.length === 0
         if (productResults.length > 0 && !isAskingQuestion) {
           await write(sseEvent('products', { products: productResults }))

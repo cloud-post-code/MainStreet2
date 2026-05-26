@@ -1,4 +1,4 @@
-import { searchProducts } from '../../lib/search'
+import { searchProductsMulti } from '../../lib/search'
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -17,7 +17,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const results = await searchProducts(query.trim(), limit ?? 5)
+    const results = await searchProductsMulti([query.trim()], limit ?? 5)
     return new Response(JSON.stringify({ results }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

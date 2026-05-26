@@ -30,6 +30,15 @@ export interface ProductResult {
   similarity: number
 }
 
+export interface BusinessResult {
+  id: string
+  name: string
+  url: string
+  town: string
+  category: string | null
+  status: string
+}
+
 export interface Business {
   id: string
   name: string

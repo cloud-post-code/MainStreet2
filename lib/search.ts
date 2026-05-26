@@ -1,54 +1,65 @@
 import { getSupabaseClient } from './supabase'
-import type { ProductResult, MessageParam } from './types'
+import type { ProductResult, BusinessResult } from './types'
 
-// Derive a clean, unambiguous search query from the full conversation history.
-// Uses GPT-4o-mini — cheap, fast, no need for a heavier model for this extraction task.
-export async function deriveSearchQuery(messages: MessageParam[]): Promise<string> {
-  const transcript = messages
-    .map(m => `${m.role === 'user' ? 'Customer' : 'Mason'}: ${typeof m.content === 'string' ? m.content : ''}`)
-    .join('\n')
+export async function searchProductsMulti(queries: string[], limitPerQuery = 5): Promise<ProductResult[]> {
+  if (queries.length === 0) return []
 
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+  const embResp = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      max_tokens: 50,
-      temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content: 'Extract a single product search query (under 20 words) from this shopping conversation. Return ONLY the query string, nothing else.',
-        },
-        { role: 'user', content: transcript },
-      ],
-    }),
+    body: JSON.stringify({ input: queries, model: 'text-embedding-3-small' }),
   })
-  const data = await resp.json() as { choices: Array<{ message: { content: string } }> }
-  return data.choices[0]?.message?.content?.trim() ?? ''
-}
+  if (!embResp.ok) throw new Error(`Embeddings API error: ${embResp.status}`)
 
-export async function searchProducts(query: string, limit = 5): Promise<ProductResult[]> {
-  const embeddingResp = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ input: query, model: 'text-embedding-3-small' }),
-  })
-  const embeddingData = await embeddingResp.json() as { data: Array<{ embedding: number[] }> }
-  const embedding = embeddingData.data[0].embedding
+  const embData = await embResp.json() as { data: Array<{ embedding: number[] }> }
+  const embeddings = embData.data.map(d => d.embedding)
+
+  if (embeddings.length !== queries.length) {
+    throw new Error(`Embedding count mismatch: expected ${queries.length}, got ${embeddings.length}`)
+  }
 
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase.rpc('match_products', {
-    query_embedding: embedding,
-    match_threshold: 0.75,
-    match_count: limit,
-  })
+  const rpcResults = await Promise.all(
+    embeddings.map(embedding =>
+      // 0.30 is intentionally lenient — text-embedding-3-small puts semantically related items in the 0.4–0.7 range;
+      // a high threshold filters out plenty of relevant products. Mason curates the top results via build_cards.
+      supabase.rpc('match_products', { query_embedding: embedding, match_threshold: 0.30, match_count: limitPerQuery })
+    )
+  )
+
+  const seen = new Map<string, ProductResult>()
+  for (const { data } of rpcResults) {
+    for (const p of (data ?? []) as ProductResult[]) {
+      if (!seen.has(p.id) || seen.get(p.id)!.similarity < p.similarity) seen.set(p.id, p)
+    }
+  }
+  return [...seen.values()].sort((a, b) => b.similarity - a.similarity)
+}
+
+export async function searchBusinesses(query: string, town?: string, limit = 5): Promise<BusinessResult[]> {
+  // Escape LIKE wildcards to prevent pattern manipulation via LLM-supplied strings
+  const safeLike = (s: string) => s.replace(/[%_\\]/g, '\\$&')
+
+  const supabase = getSupabaseClient()
+  let q = supabase
+    .from('businesses')
+    .select('id, name, url, town, status, categories(name)')
+    .eq('status', 'active')
+    .ilike('name', `%${safeLike(query)}%`)
+    .limit(limit)
+  if (town) q = (q as typeof q).ilike('town', `%${safeLike(town)}%`)
+  const { data, error } = await q
   if (error) throw error
-  return (data ?? []) as ProductResult[]
+  return (data ?? []).map((b: Record<string, unknown>) => ({
+    id: b.id as string,
+    name: b.name as string,
+    url: b.url as string,
+    town: b.town as string,
+    status: b.status as string,
+    // categories is a one-to-many join — Supabase returns an array
+    category: (b.categories as Array<{ name: string }> | null)?.[0]?.name ?? null,
+  }))
 }

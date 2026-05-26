@@ -1,12 +1,27 @@
 export const runtime = 'edge'
 
 import { getSupabaseClient } from '../../lib/supabase'
-import { deriveSearchQuery, searchProducts } from '../../lib/search'
+import { searchProductsMulti, searchBusinesses } from '../../lib/search'
+import { MASON_TOOLS } from '../../lib/tools'
 import { resolveCustomerId } from '../../lib/auth'
-import type { ConversationRow, ChatErrorCode, ChatErrorEvent, MessageParam, ProductResult } from '../../lib/types'
+import type { ConversationRow, ChatErrorCode, ChatErrorEvent, MessageParam, ProductResult, BusinessResult } from '../../lib/types'
 
 const TURN_LIMIT = 8
 const TTL_MS = 24 * 60 * 60 * 1000
+const MAX_TOOL_ROUNDS = 4
+
+// Wire-format messages for OpenAI — never stored to DB (only user/assistant MessageParam[] is persisted)
+type OAIMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string | null; tool_calls?: OAIToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
+
+interface OAIToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
 
 function sseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -17,61 +32,25 @@ function errorEvent(code: number, type: ChatErrorCode, message: string, retry: b
   return sseEvent('error', payload)
 }
 
-function shouldSearch(_messages: MessageParam[], _turnCount: number): boolean {
-  // Always search — every user message refines the query and gives more context.
-  // Skipping search after Mason asks a question was causing Mason to go 2+ turns
-  // without any DB lookup, leading to repeated clarifying questions.
-  return true
-}
-
-// Convert our MessageParam history to OpenAI chat format
-function toOpenAIMessages(messages: MessageParam[], productResults: ProductResult[], searchRan: boolean): Array<{ role: string; content: string }> {
-  const openaiMessages: Array<{ role: string; content: string }> = []
-
-  for (const m of messages) {
-    const content = typeof m.content === 'string' ? m.content : ''
-    openaiMessages.push({ role: m.role, content })
-  }
-
-  if (productResults.length > 0) {
-    const productJson = JSON.stringify(productResults.map(p => ({
-      name: p.name,
-      price: p.price,
-      shop: p.business_name,
-      url: p.url,
-      image_url: p.image_url,
-      last_seen: p.last_seen,
-    })))
-    openaiMessages.push({
-      role: 'user',
-      content: `[Product search results — use these to answer the customer]: ${productJson}`,
-    })
-  } else if (searchRan) {
-    // Search ran but found nothing — explicit zero-results signal so Mason cannot hallucinate
-    openaiMessages.push({
-      role: 'user',
-      content: '[Product search returned 0 results from the database. DO NOT name, describe, or recommend any products or shops. Ask the customer one clarifying question to help narrow the search.]',
-    })
-  }
-
-  return openaiMessages
-}
-
 const SYSTEM_PROMPT = `You are Mason, a warm and knowledgeable personal shopper for Main Street — a curated collection of local businesses in small-town America.
 
-Your job: guide customers to find exactly what they need from local shops they can trust.
+You have three tools:
+- search_products: search the catalog with 2–4 varied semantic queries to maximize recall
+- search_businesses: find local shops by name, type, or specialty
+- build_cards: render product/business cards in the UI — call this with the specific IDs you want to highlight
 
-DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results.
+Search protocol:
+- On the first customer message, always search before responding — never respond without searching first.
+- Use multiple queries in search_products (synonyms, category terms, descriptors) to cast a wide net.
+- After getting results, call build_cards with the IDs of items you are recommending, then write your response.
+- For follow-up refinements, search again with refined queries.
+- Never invent products — only recommend items returned by your search tools.
+- If search returns nothing, ask ONE specific narrowing question. Max 2 clarifying questions total across the conversation.
 
-How to help:
-1. If the very first request is vague, ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
-2. FIRST RESULTS RULE (hard): The moment you receive any [Product search results], you MUST present them. Do not ask another question instead of showing results — you may add a brief follow-up question AFTER the recommendation, but never withhold products to ask more questions.
-3. Present 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
-4. A single short follow-up is welcome alongside a recommendation — e.g. "Here are a few options! Any preference on price range?" — but products always come first.
-5. When search returns 0 results: ask ONE specific narrowing question. Do not ask more than two clarifying questions total across the whole conversation.
-6. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
-7. Never mention AI, technology, search engines, or databases.
-8. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
+Conversation rules:
+- Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
+- Never mention AI, technology, search engines, or databases.
+- For refinements, echo what you understood: "Here are 3 options in blue under $30:"`
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -119,7 +98,6 @@ export default async function handler(req: Request): Promise<Response> {
       })
     }
 
-    // Verify ownership: authenticated users check user_id, guests check fingerprint
     if (identity.isAuthenticated) {
       if (data.user_id && data.user_id !== identity.id) {
         return new Response(errorEvent(404, 'session_not_found', 'Session not found or expired', false), {
@@ -173,18 +151,6 @@ export default async function handler(req: Request): Promise<Response> {
     { role: 'user', content: message },
   ]
 
-  let productResults: ProductResult[] = []
-  let derivedQuery: string | null = null
-  if (shouldSearch(updatedMessages, conversation.turn_count)) {
-    derivedQuery = await deriveSearchQuery(updatedMessages)
-    if (derivedQuery) {
-      productResults = await searchProducts(derivedQuery, 4)
-    }
-  }
-
-  const searchRan = derivedQuery !== null
-  const openaiMessages = toOpenAIMessages(updatedMessages, productResults, searchRan)
-
   const isDebug = process.env.VERCEL_ENV !== 'production' &&
     new URL(req.url).searchParams.get('debug') === '1'
 
@@ -199,74 +165,191 @@ export default async function handler(req: Request): Promise<Response> {
         await write(sseEvent('session', { sessionId: conversation!.id }))
       }
 
-      if (isDebug && productResults.length > 0) {
-        await write(sseEvent('debug', { derivedQuery, productCount: productResults.length }))
-      }
+      // In-memory indexes for this turn (for build_cards ID lookup)
+      const productIndex = new Map<string, ProductResult>()
+      const businessIndex = new Map<string, BusinessResult>()
+      let allProductResults: ProductResult[] = []
 
-      const openaiResp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          max_tokens: 1024,
-          stream: true,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            ...openaiMessages,
-          ],
-        }),
-        signal: req.signal,
-      })
+      // Build the OpenAI messages array (system + conversation history)
+      const oaiMessages: OAIMessage[] = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...updatedMessages.map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: typeof m.content === 'string' ? m.content : '',
+        })),
+      ]
 
-      if (!openaiResp.ok) {
-        const err = await openaiResp.text()
-        console.error('OpenAI error:', err)
-        await write(errorEvent(500, 'internal_error', 'Something went wrong', false))
-        return
-      }
-
-      const reader = openaiResp.body!.getReader()
-      const dec = new TextDecoder()
       let fullText = ''
-      let buf = ''
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += dec.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
+      // Agentic tool loop — non-streaming rounds until Mason gives a final text response
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const toolResp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            max_tokens: 1024,
+            stream: false,
+            tools: MASON_TOOLS,
+            tool_choice: 'auto',
+            messages: oaiMessages,
+          }),
+        })
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const payload = line.slice(6).trim()
-          if (payload === '[DONE]') continue
-          try {
-            const chunk = JSON.parse(payload) as { choices: Array<{ delta: { content?: string } }> }
-            const text = chunk.choices[0]?.delta?.content ?? ''
-            if (text) {
-              fullText += text
-              await write(sseEvent('delta', { text }))
-            }
-          } catch {
-            // malformed chunk — skip
-          }
+        if (!toolResp.ok) {
+          const err = await toolResp.text()
+          console.error('OpenAI error (tool round):', err)
+          await write(errorEvent(500, 'internal_error', 'Something went wrong', false))
+          return
         }
+
+        const json = await toolResp.json() as {
+          choices: Array<{
+            finish_reason: string
+            message: { role: string; content: string | null; tool_calls?: OAIToolCall[] }
+          }>
+        }
+        const choice = json.choices[0]
+
+        if (choice.finish_reason === 'tool_calls') {
+          // Append the assistant's tool-call message to the in-flight history
+          oaiMessages.push(choice.message as OAIMessage)
+
+          for (const tc of choice.message.tool_calls ?? []) {
+            let args: Record<string, unknown>
+            try {
+              args = JSON.parse(tc.function.arguments)
+            } catch {
+              args = {}
+            }
+
+            let toolResult: string
+
+            if (tc.function.name === 'search_products') {
+              const queries = (args.queries as string[]) ?? []
+              const limitPerQuery = (args.limit_per_query as number) ?? 5
+              const results = await searchProductsMulti(queries, limitPerQuery)
+              results.forEach(p => {
+                productIndex.set(p.id, p)
+                allProductResults.push(p)
+              })
+              toolResult = JSON.stringify(
+                results.map(p => ({
+                  id: p.id,
+                  name: p.name,
+                  price: p.price,
+                  shop: p.business_name,
+                  url: p.url,
+                  image_url: p.image_url,
+                  similarity: p.similarity,
+                }))
+              )
+              if (isDebug) {
+                await write(sseEvent('debug', { tool: 'search_products', queries, count: results.length }))
+              }
+
+            } else if (tc.function.name === 'search_businesses') {
+              const query = (args.query as string) ?? ''
+              const town = args.town as string | undefined
+              const limit = (args.limit as number) ?? 5
+              const results = await searchBusinesses(query, town, limit)
+              results.forEach(b => businessIndex.set(b.id, b))
+              toolResult = JSON.stringify(results)
+              if (isDebug) {
+                await write(sseEvent('debug', { tool: 'search_businesses', query, count: results.length }))
+              }
+
+            } else if (tc.function.name === 'build_cards') {
+              const pIds = (args.product_ids as string[]) ?? []
+              const bIds = (args.business_ids as string[]) ?? []
+              const products = pIds.map(id => productIndex.get(id)).filter(Boolean) as ProductResult[]
+              const businesses = bIds.map(id => businessIndex.get(id)).filter(Boolean) as BusinessResult[]
+              if (products.length > 0) await write(sseEvent('products', { products }))
+              if (businesses.length > 0) await write(sseEvent('businesses', { businesses }))
+              toolResult = JSON.stringify({ rendered_products: products.length, rendered_businesses: businesses.length })
+
+            } else {
+              toolResult = JSON.stringify({ error: 'unknown tool' })
+            }
+
+            oaiMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult })
+          }
+          // Continue loop — Mason will now compose her text response
+          continue
+        }
+
+        if (choice.finish_reason === 'stop') {
+          // Final text turn — stream it
+          const streamResp = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o',
+              max_tokens: 1024,
+              stream: true,
+              messages: oaiMessages,
+            }),
+            signal: req.signal,
+          })
+
+          if (!streamResp.ok) {
+            const err = await streamResp.text()
+            console.error('OpenAI error (stream):', err)
+            await write(errorEvent(500, 'internal_error', 'Something went wrong', false))
+            return
+          }
+
+          const reader = streamResp.body!.getReader()
+          const dec = new TextDecoder()
+          let buf = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += dec.decode(value, { stream: true })
+            const lines = buf.split('\n')
+            buf = lines.pop() ?? ''
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue
+              const payload = line.slice(6).trim()
+              if (payload === '[DONE]') continue
+              try {
+                const chunk = JSON.parse(payload) as { choices: Array<{ delta: { content?: string } }> }
+                const text = chunk.choices[0]?.delta?.content ?? ''
+                if (text) {
+                  fullText += text
+                  await write(sseEvent('delta', { text }))
+                }
+              } catch {
+                // malformed chunk — skip
+              }
+            }
+          }
+          break
+        }
+
+        // Unexpected finish_reason — break to avoid infinite loop
+        break
       }
 
+      // Persist conversation (only user+assistant turns — strip OAI tool messages)
       const assistantMessage: MessageParam = { role: 'assistant', content: fullText }
       const finalMessages: MessageParam[] = [...updatedMessages, assistantMessage]
-
       const newExpiry = new Date(Date.now() + TTL_MS).toISOString()
+
       const { error: updateError } = await supabase
         .from('conversations')
         .update({
           messages: finalMessages,
-          last_search_results: productResults.length > 0 ? productResults : conversation!.last_search_results,
-          last_derived_query: derivedQuery ?? conversation!.last_derived_query,
+          last_search_results: allProductResults.length > 0 ? allProductResults : conversation!.last_search_results,
+          last_derived_query: conversation!.last_derived_query,
           turn_count: conversation!.turn_count + 1,
           version: conversation!.version + 1,
           expires_at: newExpiry,
@@ -277,11 +360,6 @@ export default async function handler(req: Request): Promise<Response> {
       if (updateError) {
         await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
       } else {
-        // Emit product cards only when Mason is recommending (not asking a question)
-        const isAskingQuestion = fullText.trimEnd().endsWith('?')
-        if (productResults.length > 0 && !isAskingQuestion) {
-          await write(sseEvent('products', { products: productResults }))
-        }
         await write(sseEvent('done', { turnCount: conversation!.turn_count + 1 }))
       }
     } catch (err) {

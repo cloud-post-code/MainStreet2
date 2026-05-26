@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1.0] - 2026-05-26
+
+### Fixed
+- **Chat API 404 in production** — `export const runtime = 'edge'` caused Vercel's Edge Network to silently fail on `@supabase/supabase-js` initialization, returning 404 for every `POST /api/chat`. Converted to a standard Node.js serverless handler (`NextApiRequest`/`NextApiResponse`) with SSE streaming via `res.write()`. Chat now works on hosted environments.
+
+### Changed
+- **Richer product search embeddings** — embedded text for each product now includes business name, product name, description, and price (was name + description only). Searches like "candles from [shop name]" or "gifts under $30" produce better matches. Existing products need a re-scrape to pick up the new embeddings.
+
 ## [0.1.0.1] - 2026-05-25
 
 ### Fixed

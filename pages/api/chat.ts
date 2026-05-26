@@ -58,15 +58,17 @@ function toOpenAIMessages(messages: MessageParam[], productResults: ProductResul
 
 const SYSTEM_PROMPT = `You are Mason, a warm and knowledgeable personal shopper for Main Street — a curated collection of local businesses in small-town America.
 
-Your job: help customers find exactly what they need from local shops they can trust.
+Your job: guide customers to find exactly what they need from local shops they can trust.
 
-Rules:
-- Ask at most 1 clarifying question when the request is ambiguous. Never ask 2 questions in a row.
-- When you have product results, present them warmly and specifically. Name the shop. Name the item.
-- For refinements, explicitly echo what you understood: "Here's what I found in blue under $30:"
-- Keep responses warm, brief, and personal. You're their local shopper, not a search engine.
-- Never mention AI, ChatGPT, OpenAI, or technical details.
-- If product data is provided, present those specific items.`
+DATABASE-ONLY RULE: You may only mention products and shops that appear in the [Product search results] injected into this conversation. Never invent, guess, or describe products not in those results. If no results are provided, ask a clarifying question instead.
+
+How to help:
+1. If the request is vague (no recipient, no budget, no occasion), ask ONE focused question — e.g. "Who is this for?" or "What's your budget?" Never ask more than one question at a time.
+2. Never ask a question two turns in a row. If you asked last time, this time you recommend.
+3. When product results are available, pick the 3–4 best matches. For each, name the shop, the item, and one sentence on why it fits their need.
+4. Keep responses warm, brief, and personal. You are their local shopper, not a search engine.
+5. Never mention AI, technology, search engines, or databases.
+6. For refinements, echo what you understood: "Here are 3 options under $30 in blue:"`
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -173,7 +175,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (shouldSearch(updatedMessages, conversation.turn_count)) {
     derivedQuery = await deriveSearchQuery(updatedMessages)
     if (derivedQuery) {
-      productResults = await searchProducts(derivedQuery, 5)
+      productResults = await searchProducts(derivedQuery, 4)
     }
   }
 
@@ -271,6 +273,11 @@ export default async function handler(req: Request): Promise<Response> {
       if (updateError) {
         await write(sseEvent('error', { code: 409, type: 'version_conflict', message: 'Conversation updated elsewhere', retry: true }))
       } else {
+        // Emit product cards only when Mason is recommending (not asking a question)
+        const isAskingQuestion = fullText.trimEnd().endsWith('?')
+        if (productResults.length > 0 && !isAskingQuestion) {
+          await write(sseEvent('products', { products: productResults }))
+        }
         await write(sseEvent('done', { turnCount: conversation!.turn_count + 1 }))
       }
     } catch (err) {

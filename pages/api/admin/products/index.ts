@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '../../auth/[...nextauth]'
 import { getAdminClient } from '../../../../lib/admin/supabase-admin'
+import { generateProductEmbedding } from '../../../../lib/search'
 
 function stripHtml(str: string): string {
   return str.replace(/<[^>]*>/g, '').trim()
@@ -56,6 +57,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { data: biz } = await db.from('businesses').select('name').eq('id', business_id).single()
   if (biz) {
     await db.from('products').update({ business_name: biz.name }).eq('id', data.id)
+  }
+
+  // Generate embedding so Mason can find this product via vector search
+  try {
+    const embedText = [name, description].filter(Boolean).join(' ')
+    const embedding = await generateProductEmbedding(stripHtml(embedText))
+    await db.from('products').update({ embedding }).eq('id', data.id)
+  } catch {
+    // Non-fatal: product is still saved; fallback text search will cover it
   }
 
   // Sync product_images

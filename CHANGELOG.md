@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0.3] - 2026-05-28
+
+### Fixed
+- **Admin scraper now works on production.** Every call to `/api/admin/scraper/generate` and `/api/admin/scraper/run*` returned 500 with `browserType.launch: Executable doesn't exist`. The scraper used the full `playwright` package, which expects Chromium binaries to be installed at runtime — Vercel serverless functions ship without Chromium. Replaced with `playwright-core` + `@sparticuz/chromium` (Lambda-compatible Chromium tarball). Added `lib/browser.ts` with an env-aware `launchBrowser()` helper: uses Sparticuz Chromium on Vercel/Lambda, the cached local Chromium binary otherwise (CLI `npm run scrape` still works unchanged). Added `vercel.json` to bump scraper function memory to 1024 MB and `maxDuration` to 300 s so Chromium has room to launch and crawl shops without timing out.
+
 ## [0.2.0.2] - 2026-05-28
 
 ### Fixed

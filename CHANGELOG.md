@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0.2] - 2026-05-28
+
+### Fixed
+- **Mason now finds products even when embeddings are missing.** Products created via the admin panel were inserted with `embedding = NULL`. The `match_products` Postgres RPC silently drops all rows where the cosine distance is NULL (any arithmetic with NULL evaluates to false), so the entire catalog appeared empty to Mason's `search_products` tool. Fixed by adding a keyword `ilike` fallback search in `lib/search.ts` that runs when vector search returns zero results — Mason can now find all products regardless of embedding status. Admin-created products now also have embeddings generated at insert time (and regenerated on name/description update) so semantic search catches them too.
+
 ## [0.2.0.1] - 2026-05-28
 
 ### Fixed

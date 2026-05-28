@@ -1,6 +1,6 @@
 import { GetServerSideProps } from 'next'
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import AdminLayout from '../../../components/admin/AdminLayout'
 import { requireAdminSession } from '../../../lib/admin/auth'
 import { getAdminClient } from '../../../lib/admin/supabase-admin'
@@ -35,6 +35,56 @@ const HEALTH_COLORS = {
   red: { bg: '#fee2e2', border: '#fca5a5', text: '#991b1b', dot: '#ef4444' },
 }
 
+interface ProgressState {
+  percent: number
+  step: string
+  totalProducts: number
+  doneProducts: number
+  startedAt: number
+}
+
+function parseLogMessage(msg: string, prev: ProgressState): ProgressState {
+  const next = { ...prev }
+  if (msg.startsWith('Starting scrape for')) {
+    next.step = msg; next.percent = 2
+  } else if (msg.startsWith('Discovering products from')) {
+    next.step = 'Discovering products...'; next.percent = 5
+  } else if (msg.startsWith('Found') && msg.includes('collection')) {
+    next.step = msg; next.percent = 15
+  } else if (msg.startsWith('Discovery complete:') || msg.startsWith('Discovered')) {
+    const m = msg.match(/(\d+) product/)
+    if (m) next.totalProducts = parseInt(m[1])
+    next.step = `Found ${next.totalProducts} products to scrape`
+    next.percent = 28
+  } else if (msg.startsWith('Scraping') && msg.includes('product detail pages')) {
+    const m = msg.match(/Scraping (\d+)/)
+    if (m) next.totalProducts = parseInt(m[1])
+    next.step = `Scraping ${next.totalProducts} products...`
+    next.percent = 30
+  } else if (msg.startsWith('+ new:') || msg.startsWith('~ price:') || msg.startsWith('SKIP ')) {
+    next.doneProducts = prev.doneProducts + 1
+    if (next.totalProducts > 0) {
+      next.percent = Math.round(30 + Math.min(next.doneProducts / next.totalProducts, 1) * 65)
+    }
+    const label = msg.startsWith('+ new:') ? msg.slice(7).split(' $')[0]
+      : msg.startsWith('~ price:') ? msg.slice(9).split(' $')[0] : ''
+    next.step = `${next.doneProducts}/${next.totalProducts > 0 ? next.totalProducts : '?'}${label ? ` — ${label}` : ''}`
+  }
+  return next
+}
+
+function getTimeEstimate(p: ProgressState): string | null {
+  if (!p.startedAt || p.doneProducts === 0 || p.totalProducts === 0) return null
+  const elapsed = (Date.now() - p.startedAt) / 1000
+  const rate = p.doneProducts / elapsed
+  const remaining = p.totalProducts - p.doneProducts
+  if (rate <= 0 || remaining <= 0) return null
+  const secs = Math.round(remaining / rate)
+  if (secs < 5) return 'almost done'
+  if (secs < 60) return `~${secs}s left`
+  return `~${Math.ceil(secs / 60)}m left`
+}
+
 export default function ScraperIndex({ businesses: initial, staleCount }: Props) {
   const [businesses, setBusinesses] = useState(initial)
   const [bulkRunning, setBulkRunning] = useState(false)
@@ -44,6 +94,8 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
   )
   const [productMode, setProductMode] = useState<Record<string, string>>({})
   const [openProductBox, setOpenProductBox] = useState<string | null>(null)
+  const [progress, setProgress] = useState<Record<string, ProgressState>>({})
+  const esMapRef = useRef<Map<string, EventSource>>(new Map())
 
   // Poll status for running businesses
   useEffect(() => {
@@ -61,13 +113,38 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
     return () => clearInterval(timer)
   }, [runningIds])
 
-  async function runSingle(id: string) {
+  function runSingle(id: string) {
     setRunningIds(prev => new Set([...prev, id]))
-    await fetch('/api/admin/scraper/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ businessId: id }),
-    })
+    setProgress(prev => ({
+      ...prev,
+      [id]: { percent: 2, step: 'Starting...', totalProducts: 0, doneProducts: 0, startedAt: Date.now() },
+    }))
+
+    esMapRef.current.get(id)?.close()
+    const es = new EventSource(`/api/admin/scraper/run-stream?businessId=${id}`)
+    esMapRef.current.set(id, es)
+
+    es.onmessage = e => {
+      const msg: string = JSON.parse(e.data)
+      if (msg.startsWith('DONE:') || msg === 'CANCELLED' || msg.startsWith('ERROR:')) {
+        setProgress(prev => ({
+          ...prev,
+          [id]: { ...prev[id], percent: 100, step: msg.startsWith('DONE:') ? 'Complete' : msg },
+        }))
+        setRunningIds(prev => { const n = new Set(prev); n.delete(id); return n })
+        es.close(); esMapRef.current.delete(id)
+        fetch('/api/admin/scraper/status?all=true').then(r => r.json()).then(({ businesses: updated }) => setBusinesses(updated))
+      } else {
+        setProgress(prev => {
+          const curr = prev[id] ?? { percent: 2, step: '', totalProducts: 0, doneProducts: 0, startedAt: Date.now() }
+          return { ...prev, [id]: parseLogMessage(msg, curr) }
+        })
+      }
+    }
+    es.onerror = () => {
+      setRunningIds(prev => { const n = new Set(prev); n.delete(id); return n })
+      es.close(); esMapRef.current.delete(id)
+    }
   }
 
   async function runProductUrls(id: string) {
@@ -156,6 +233,19 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
                               +{b.last_scrape_diff.added} / ~{b.last_scrape_diff.priceChanges.length}
                             </span>
                           )}
+                        </div>
+                      )}
+                      {isRunning && (
+                        <div style={s.progressWrap}>
+                          <div style={s.progressTrack}>
+                            <div style={{ ...s.progressFill, width: `${progress[b.id]?.percent ?? 5}%` }} />
+                          </div>
+                          <div style={s.progressMeta}>
+                            <span style={s.progressStep}>{progress[b.id]?.step ?? 'Starting...'}</span>
+                            {getTimeEstimate(progress[b.id] ?? { percent: 0, step: '', totalProducts: 0, doneProducts: 0, startedAt: 0 }) && (
+                              <span style={s.progressTime}>{getTimeEstimate(progress[b.id] ?? { percent: 0, step: '', totalProducts: 0, doneProducts: 0, startedAt: 0 })}</span>
+                            )}
+                          </div>
                         </div>
                       )}
                       <div style={s.cardActions}>
@@ -248,4 +338,10 @@ const s: Record<string, React.CSSProperties> = {
   empty: { textAlign: 'center', color: '#9ca3af', padding: '60px 0', fontSize: 15 },
   productBox: { marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 },
   productTextarea: { width: '100%', fontSize: 12, padding: 6, borderRadius: 6, border: '1px solid rgba(0,0,0,0.2)', fontFamily: 'inherit', resize: 'vertical' },
+  progressWrap: { marginBottom: 8 },
+  progressTrack: { height: 4, background: 'rgba(0,0,0,0.1)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 },
+  progressFill: { height: '100%', background: '#015237', borderRadius: 2, transition: 'width 0.5s ease' },
+  progressMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  progressStep: { fontSize: 10, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 160 },
+  progressTime: { fontSize: 10, color: '#9ca3af', flexShrink: 0, marginLeft: 4 },
 }

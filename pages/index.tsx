@@ -1,13 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Head from 'next/head'
 import { useSession } from 'next-auth/react'
-import type { ProductResult } from '../lib/types'
+import type { Block, ProductResult, Business } from '../lib/types'
 
 type MessageRole = 'user' | 'assistant'
+
+type Part =
+  | { kind: 'text'; id: string; text: string; ended: boolean }
+  | { kind: 'block'; id: string; block: Block }
+
 interface ChatMessage {
   role: MessageRole
-  text: string
-  products?: ProductResult[]
+  parts: Part[]
   isStreaming?: boolean
 }
 
@@ -23,6 +27,14 @@ const MASON_EXPRESSIONS: Record<MasonMood, string> = {
 
 const TURN_LIMIT = 8
 
+function userMessage(text: string): ChatMessage {
+  return { role: 'user', parts: [{ kind: 'text', id: 'u', text, ended: true }] }
+}
+
+function emptyAssistant(): ChatMessage {
+  return { role: 'assistant', parts: [], isStreaming: true }
+}
+
 export default function Home() {
   const { data: session, status: authStatus } = useSession()
   const isAuthenticated = authStatus === 'authenticated'
@@ -36,8 +48,6 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [showExpiredNote, setShowExpiredNote] = useState(false)
   const [chatStarted, setChatStarted] = useState(false)
-  const [suggestChips, setSuggestChips] = useState<string[]>([])
-  const [updatingProducts, setUpdatingProducts] = useState(false)
   const [showSignupNudge, setShowSignupNudge] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -55,29 +65,40 @@ export default function Home() {
     const params = new URLSearchParams(window.location.search)
     const resumeId = params.get('session')
     if (resumeId) {
-      // Load the continued session from the API and hydrate the chat UI
       fetch('/api/history/sessions')
         .then(r => r.json())
         .then(data => {
-          const match = (data.sessions ?? []).find((s: { id: string; messages: Array<{ role: string; content: string | unknown[] }>; turn_count: number }) => s.id === resumeId)
+          const match = (data.sessions ?? []).find((s: { id: string; messages: Array<{ role: string; content: unknown }>; turn_count: number; expires_at: string }) => s.id === resumeId)
           if (match) {
             const hydrated: ChatMessage[] = match.messages
               .filter((m: { role: string }) => m.role === 'user' || m.role === 'assistant')
-              .map((m: { role: string; content: string | unknown[] }) => ({
-                role: m.role as MessageRole,
-                text: typeof m.content === 'string' ? m.content : '',
-              }))
+              .map((m: { role: string; content: unknown }) => {
+                const text = typeof m.content === 'string'
+                  ? m.content
+                  : Array.isArray(m.content)
+                    ? (m.content as Array<{ type: string; text?: string }>)
+                        .filter(c => c.type === 'text')
+                        .map(c => c.text ?? '')
+                        .join('')
+                    : ''
+                return {
+                  role: m.role as MessageRole,
+                  parts: [{ kind: 'text' as const, id: 'h', text, ended: true }],
+                }
+              })
+              .filter((m: ChatMessage) => {
+                const first = m.parts[0]
+                return first?.kind === 'text' && first.text.trim().length > 0
+              })
             setMessages(hydrated)
             setTurnCount(match.turn_count)
             setSessionId(resumeId)
             setChatStarted(true)
-            // Store so reload doesn't lose the session
             localStorage.setItem('ms_session', JSON.stringify({ id: resumeId, expiresAt: match.expires_at }))
-            // Clean up the URL param without a page reload
             window.history.replaceState({}, '', '/')
           }
         })
-        .catch(() => { /* silently fall through to normal mount */ })
+        .catch(() => {})
       return
     }
 
@@ -103,19 +124,24 @@ export default function Home() {
     }
   }, [messages])
 
+  // Helper: update the last (assistant) message in-place
+  const updateLast = useCallback((updater: (msg: ChatMessage) => ChatMessage) => {
+    setMessages(prev => {
+      if (prev.length === 0) return prev
+      const next = [...prev]
+      next[next.length - 1] = updater(next[next.length - 1])
+      return next
+    })
+  }, [])
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isLoading || turnCount >= TURN_LIMIT) return
 
-    const userMsg: ChatMessage = { role: 'user', text }
-    setMessages(prev => [...prev, userMsg])
+    setMessages(prev => [...prev, userMessage(text), emptyAssistant()])
     setInput('')
-    setSuggestChips([])
     setChatStarted(true)
     setIsLoading(true)
     setMasonMood('thinking')
-
-    // Add streaming placeholder
-    setMessages(prev => [...prev, { role: 'assistant', text: '', isStreaming: true }])
 
     try {
       const body: { message: string; sessionId?: string } = { message: text }
@@ -126,16 +152,11 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-
       if (!resp.body) throw new Error('No stream')
 
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      let fullText = ''
-      let newProducts: ProductResult[] | undefined
-
-      setMasonMood('searching')
 
       while (true) {
         const { done, value } = await reader.read()
@@ -154,72 +175,74 @@ export default function Home() {
             if (line.startsWith('data: ')) data = line.slice(6)
           }
           if (!data) continue
-
-          const parsed = JSON.parse(data)
+          let parsed: { [k: string]: unknown }
+          try { parsed = JSON.parse(data) } catch { continue }
 
           if (eventType === 'session') {
             const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
             localStorage.setItem('ms_session', JSON.stringify({ id: parsed.sessionId, expiresAt }))
-            setSessionId(parsed.sessionId)
-          } else if (eventType === 'delta') {
-            fullText += parsed.text
-            setMessages(prev => {
-              const updated = [...prev]
-              updated[updated.length - 1] = { role: 'assistant', text: fullText, isStreaming: true }
-              return updated
-            })
+            setSessionId(parsed.sessionId as string)
+          } else if (eventType === 'text_start') {
+            const id = parsed.id as string
+            updateLast(msg => ({ ...msg, parts: [...msg.parts, { kind: 'text', id, text: '', ended: false }] }))
+          } else if (eventType === 'text_delta') {
+            const id = parsed.id as string
+            const chunk = parsed.text as string
+            updateLast(msg => ({
+              ...msg,
+              parts: msg.parts.map(p =>
+                p.kind === 'text' && p.id === id ? { ...p, text: p.text + chunk } : p,
+              ),
+            }))
+          } else if (eventType === 'text_end') {
+            const id = parsed.id as string
+            updateLast(msg => ({
+              ...msg,
+              parts: msg.parts.map(p =>
+                p.kind === 'text' && p.id === id ? { ...p, ended: true } : p,
+              ),
+            }))
+          } else if (eventType === 'block') {
+            const block: Block = { type: parsed.type as Block['type'], data: parsed.data as Block['data'] } as Block
+            const id = parsed.id as string
+            updateLast(msg => ({ ...msg, parts: [...msg.parts, { kind: 'block', id, block }] }))
+            if (block.type === 'question') setMasonMood('curious')
+            if (block.type === 'product_strip' || block.type === 'shop_card') setMasonMood('happy')
+          } else if (eventType === 'tool_start') {
+            setMasonMood('searching')
+          } else if (eventType === 'tool_end') {
+            setMasonMood('thinking')
           } else if (eventType === 'done') {
-            setTurnCount(parsed.turnCount)
-            setMasonMood(fullText.includes('?') ? 'curious' : 'happy')
-            // Show signup nudge after first assistant response if not logged in
-            if (!isAuthenticated && parsed.turnCount === 1) {
+            const turn = typeof parsed.turnCount === 'number' ? parsed.turnCount : (turnCount + 1)
+            setTurnCount(turn)
+            updateLast(msg => ({ ...msg, isStreaming: false }))
+            setMasonMood(prev => prev === 'curious' ? 'curious' : 'happy')
+            if (!isAuthenticated && turn === 1) {
               const dismissed = typeof window !== 'undefined' && sessionStorage.getItem('ms_nudge_dismissed')
               if (!dismissed) setShowSignupNudge(true)
             }
-            setMessages(prev => {
-              const updated = [...prev]
-              updated[updated.length - 1] = {
-                role: 'assistant',
-                text: fullText,
-                products: newProducts,
-                isStreaming: false,
-              }
-              return updated
-            })
-            // Set contextual suggestion chips
-            if (newProducts && newProducts.length > 0) {
-              setSuggestChips(['Under $25', 'Something for baking', 'Add all to cart'])
-            } else if (fullText.includes('?')) {
-              setSuggestChips(['Cooking tools', 'Pantry & oils', 'Either works!'])
-            }
-          } else if (eventType === 'products') {
-            newProducts = parsed.products
           } else if (eventType === 'error') {
-            setMessages(prev => {
-              const updated = [...prev]
-              updated[updated.length - 1] = {
-                role: 'assistant',
-                text: parsed.type === 'turn_limit_exceeded'
-                  ? 'I want to make sure I find you the right thing — want to see what I have so far?'
-                  : 'Something went wrong. Let\'s try again.',
-                isStreaming: false,
-              }
-              return updated
-            })
+            const errText = parsed.type === 'turn_limit_exceeded'
+              ? 'I want to make sure I find you the right thing — want to see what I have so far?'
+              : 'Something went wrong. Let\'s try again.'
+            updateLast(msg => ({
+              ...msg,
+              parts: [{ kind: 'text', id: 'err', text: errText, ended: true }],
+              isStreaming: false,
+            }))
           }
         }
       }
     } catch {
-      setMessages(prev => {
-        const updated = [...prev]
-        updated[updated.length - 1] = { role: 'assistant', text: 'Something went wrong. Let\'s try again.', isStreaming: false }
-        return updated
-      })
+      updateLast(msg => ({
+        ...msg,
+        parts: [{ kind: 'text', id: 'err', text: 'Something went wrong. Let\'s try again.', ended: true }],
+        isStreaming: false,
+      }))
     } finally {
       setIsLoading(false)
-      setUpdatingProducts(false)
     }
-  }, [isLoading, sessionId, turnCount])
+  }, [isLoading, sessionId, turnCount, updateLast, isAuthenticated])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -302,7 +325,6 @@ export default function Home() {
           </div>
         </header>
         <div className="chat-layout">
-          {/* Mason sidebar */}
           <div className="mason-sidebar">
             <div className="mason-figure">
               <span className="mason-emoji">{isLoading ? MASON_EXPRESSIONS.searching : MASON_EXPRESSIONS[masonMood]}</span>
@@ -310,59 +332,19 @@ export default function Home() {
             <div className="mason-name">Mason</div>
           </div>
 
-          {/* Thread */}
           <div className="thread-col">
             <div className="thread" ref={threadRef}>
               {messages.map((msg, i) => (
-                <div key={i}>
+                <div key={i} className={msg.role === 'user' ? 'msg-user' : 'msg-agent'}>
                   {msg.role === 'user' ? (
-                    <div className="msg-user">
-                      <div className="bubble-user">{msg.text}</div>
-                    </div>
+                    <div className="bubble-user">{msg.parts[0]?.kind === 'text' ? msg.parts[0].text : ''}</div>
                   ) : (
-                    <div className="msg-agent">
-                      {msg.isStreaming && msg.text === '' ? (
-                        <div className="bubble-typing">
-                          <span className="dot" /><span className="dot" /><span className="dot" />
-                        </div>
-                      ) : (
-                        <>
-                          <div className="bubble-agent">
-                            {msg.text}
-                            {msg.isStreaming && <span className="cursor">▊</span>}
-                          </div>
-                          {msg.products && msg.products.length > 0 && (
-                            <div className={`product-strip ${updatingProducts ? 'updating' : ''}`}>
-                              <div className="strip-header">{msg.products.length} items from local shops</div>
-                              <div className="cards-row">
-                                {msg.products.map(p => (
-                                  <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="product-card">
-                                    <div className="card-img">
-                                      {p.image_url
-                                        ? <img src={p.image_url} alt={p.name} />
-                                        : <span>🛍️</span>}
-                                    </div>
-                                    <div className="card-shop">{p.business_name}</div>
-                                    <div className="card-name">{p.name}</div>
-                                    <div className="card-footer">
-                                      <span className="card-price">${p.price.toFixed(2)}</span>
-                                      <span className="local-badge">Local ✓</span>
-                                    </div>
-                                  </a>
-                                ))}
-                              </div>
-                              {updatingProducts && <div className="updating-label">Updating for you…</div>}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                    <AssistantMessage msg={msg} onChip={handleChip} />
                   )}
                 </div>
               ))}
             </div>
 
-            {/* Input area — always visible */}
             <form className="input-bar" onSubmit={handleSubmit}>
               {showSignupNudge && !isAuthenticated && (
                 <div className="signup-nudge">
@@ -376,13 +358,6 @@ export default function Home() {
                       setShowSignupNudge(false)
                     }}
                   >×</button>
-                </div>
-              )}
-              {suggestChips.length > 0 && (
-                <div className="chips">
-                  {suggestChips.map(chip => (
-                    <button key={chip} type="button" className="chip" onClick={() => handleChip(chip)}>{chip}</button>
-                  ))}
                 </div>
               )}
               <div className="input-row">
@@ -411,6 +386,105 @@ export default function Home() {
         <style suppressHydrationWarning>{styles}</style>
       </div>
     </>
+  )
+}
+
+function AssistantMessage({ msg, onChip }: { msg: ChatMessage; onChip: (s: string) => void }) {
+  // Empty + streaming = typing indicator
+  if (msg.parts.length === 0 && msg.isStreaming) {
+    return (
+      <div className="bubble-typing">
+        <span className="dot" /><span className="dot" /><span className="dot" />
+      </div>
+    )
+  }
+  return (
+    <div className="agent-parts">
+      {msg.parts.map((part, i) => {
+        if (part.kind === 'text') {
+          return (
+            <div key={i} className="bubble-agent">
+              {part.text}
+              {!part.ended && msg.isStreaming && <span className="cursor">▊</span>}
+            </div>
+          )
+        }
+        return <BlockView key={i} block={part.block} onChip={onChip} />
+      })}
+    </div>
+  )
+}
+
+function BlockView({ block, onChip }: { block: Block; onChip: (s: string) => void }) {
+  if (block.type === 'plan') {
+    return (
+      <div className="plan-card">
+        <div className="plan-header">Here&apos;s the plan</div>
+        <div className="plan-goal">{block.data.goal}</div>
+        <ol className="plan-steps">
+          {block.data.steps.map((s, i) => (
+            <li key={i}>{s.description}</li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
+  if (block.type === 'question') {
+    return (
+      <div className="question-card">
+        <div className="question-text">{block.data.question}</div>
+        {block.data.options && block.data.options.length > 0 && (
+          <div className="chips">
+            {block.data.options.map(opt => (
+              <button key={opt} type="button" className="chip" onClick={() => onChip(opt)}>{opt}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+  if (block.type === 'product_strip') {
+    return <ProductStrip headline={block.data.headline} products={block.data.products} />
+  }
+  if (block.type === 'shop_card') {
+    return <ShopCard shop={block.data.shop} reason={block.data.reason} />
+  }
+  return null
+}
+
+function ProductStrip({ headline, products }: { headline?: string; products: ProductResult[] }) {
+  if (!products || products.length === 0) return null
+  return (
+    <div className="product-strip">
+      <div className="strip-header">{headline ?? `${products.length} items from local shops`}</div>
+      <div className="cards-row">
+        {products.map(p => (
+          <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="product-card">
+            <div className="card-img">
+              {p.image_url ? <img src={p.image_url} alt={p.name} /> : <span>🛍️</span>}
+            </div>
+            <div className="card-shop">{p.business_name}</div>
+            <div className="card-name">{p.name}</div>
+            <div className="card-footer">
+              <span className="card-price">${Number(p.price).toFixed(2)}</span>
+              <span className="local-badge">Local ✓</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ShopCard({ shop, reason }: { shop: Business; reason?: string }) {
+  const address = [shop.address_street, shop.address_city, shop.address_state, shop.address_zip].filter(Boolean).join(', ')
+  return (
+    <a href={shop.url} target="_blank" rel="noreferrer" className="shop-card">
+      <div className="shop-card-name">{shop.name}</div>
+      <div className="shop-card-town">{shop.town}</div>
+      {address && <div className="shop-card-address">{address}</div>}
+      {reason && <div className="shop-card-reason">{reason}</div>}
+    </a>
   )
 }
 
@@ -477,23 +551,41 @@ const styles = `
   .bubble-user { background: var(--cream); border-radius: 16px 16px 4px 16px; padding: 12px 16px; max-width: 480px; font-size: 14px; line-height: 1.6; border: 1px solid rgba(190,110,70,0.2); }
 
   .msg-agent { display: flex; flex-direction: column; gap: 8px; }
+  .agent-parts { display: flex; flex-direction: column; gap: 8px; }
   .bubble-agent { background: white; border-radius: 4px 16px 16px 16px; padding: 12px 16px; font-size: 14px; line-height: 1.6; border: 1px solid rgba(122,158,126,0.25); max-width: 560px; white-space: pre-wrap; }
   .cursor { animation: blink 1s infinite; }
   @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
 
-  .bubble-typing { background: rgba(122,158,126,0.1); border-radius: 4px 16px 16px 16px; padding: 14px 20px; border: 1px solid rgba(122,158,126,0.2); display: inline-flex; gap: 5px; align-items: center; }
+  .bubble-typing { background: rgba(122,158,126,0.1); border-radius: 4px 16px 16px 16px; padding: 14px 20px; border: 1px solid rgba(122,158,126,0.2); display: inline-flex; gap: 5px; align-items: center; align-self: flex-start; }
   .dot { width: 7px; height: 7px; background: var(--accent); border-radius: 50%; animation: bounce 1.2s infinite; }
   .dot:nth-child(2) { animation-delay: 0.2s; }
   .dot:nth-child(3) { animation-delay: 0.4s; }
   @keyframes bounce { 0%,60%,100% { opacity: 0.4; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
+
+  /* PLAN BLOCK */
+  .plan-card { background: rgba(1,82,55,0.04); border: 1px solid rgba(1,82,55,0.15); border-radius: 12px; padding: 12px 16px; max-width: 560px; font-size: 13px; }
+  .plan-header { font-family: Georgia, serif; font-size: 11px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .plan-goal { font-size: 14px; color: var(--text); margin-bottom: 8px; line-height: 1.4; }
+  .plan-steps { margin: 0; padding-left: 20px; color: #3a4732; line-height: 1.6; }
+  .plan-steps li { margin-bottom: 2px; }
+
+  /* QUESTION BLOCK */
+  .question-card { background: white; border-radius: 4px 16px 16px 16px; padding: 12px 16px; border: 1px solid rgba(122,158,126,0.25); max-width: 560px; display: flex; flex-direction: column; gap: 10px; }
+  .question-text { font-size: 14px; line-height: 1.6; }
+
+  /* SHOP CARD BLOCK */
+  .shop-card { background: var(--cream); border-radius: 12px; padding: 14px 18px; border: 1px solid rgba(190,110,70,0.2); text-decoration: none; color: inherit; display: block; max-width: 360px; transition: box-shadow 150ms; }
+  .shop-card:hover { box-shadow: 0 4px 16px rgba(15,24,5,0.1); }
+  .shop-card-name { font-family: Georgia, serif; font-size: 16px; font-weight: 700; color: var(--primary); margin-bottom: 2px; }
+  .shop-card-town { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .shop-card-address { font-size: 12px; color: #5a6b4a; margin-bottom: 6px; }
+  .shop-card-reason { font-size: 13px; color: var(--text); font-style: italic; }
 
   /* PRODUCT STRIP */
   .product-strip { }
   .strip-header { font-size: 11px; color: var(--accent); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 14px 0; }
   .cards-row { display: flex; gap: 10px; overflow-x: auto; padding: 8px 14px 12px; scrollbar-width: none; }
   .cards-row::-webkit-scrollbar { display: none; }
-  .product-strip.updating .cards-row { opacity: 0.35; }
-  .updating-label { font-size: 12px; color: var(--accent); font-style: italic; padding: 0 14px 8px; }
 
   .product-card { background: var(--cream); border-radius: 8px; padding: 12px; width: 200px; min-width: 200px; border: 1px solid rgba(190,110,70,0.2); text-decoration: none; color: inherit; display: block; transition: box-shadow 150ms; }
   .product-card:hover { box-shadow: 0 4px 16px rgba(15,24,5,0.1); }
@@ -516,7 +608,6 @@ const styles = `
   .send-btn { background: var(--primary); color: var(--cream); border: none; border-radius: 6px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; flex-shrink: 0; }
   .send-btn.disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* TURN LIMIT — input is always shown; at limit, placeholder changes and restart button appears */
   .chat-input:disabled { opacity: 0.5; }
 
   @media (max-width: 640px) {

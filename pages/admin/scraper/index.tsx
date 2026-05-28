@@ -142,8 +142,20 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
       }
     }
     es.onerror = () => {
-      setRunningIds(prev => { const n = new Set(prev); n.delete(id); return n })
       es.close(); esMapRef.current.delete(id)
+      // SSE dropped mid-scrape — poll until the server-side job settles
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/admin/scraper/status?businessId=${id}`)
+          if (!r.ok) return
+          const { scrape_status } = await r.json()
+          if (scrape_status !== 'running') {
+            clearInterval(poll)
+            setRunningIds(prev => { const n = new Set(prev); n.delete(id); return n })
+            fetch('/api/admin/scraper/status?all=true').then(r2 => r2.json()).then(({ businesses: updated }) => setBusinesses(updated)).catch(() => {})
+          }
+        } catch { /* ignore transient network errors */ }
+      }, 3000)
     }
   }
 
@@ -235,19 +247,21 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
                           )}
                         </div>
                       )}
-                      {isRunning && (
-                        <div style={s.progressWrap}>
-                          <div style={s.progressTrack}>
-                            <div style={{ ...s.progressFill, width: `${progress[b.id]?.percent ?? 5}%` }} />
+                      {isRunning && progress[b.id] && (() => {
+                        const p = progress[b.id]
+                        const timeLeft = getTimeEstimate(p)
+                        return (
+                          <div style={s.progressWrap}>
+                            <div style={s.progressTrack}>
+                              <div style={{ ...s.progressFill, width: `${p.percent}%` }} />
+                            </div>
+                            <div style={s.progressMeta}>
+                              <span style={s.progressStep}>{p.step}</span>
+                              {timeLeft && <span style={s.progressTime}>{timeLeft}</span>}
+                            </div>
                           </div>
-                          <div style={s.progressMeta}>
-                            <span style={s.progressStep}>{progress[b.id]?.step ?? 'Starting...'}</span>
-                            {getTimeEstimate(progress[b.id] ?? { percent: 0, step: '', totalProducts: 0, doneProducts: 0, startedAt: 0 }) && (
-                              <span style={s.progressTime}>{getTimeEstimate(progress[b.id] ?? { percent: 0, step: '', totalProducts: 0, doneProducts: 0, startedAt: 0 })}</span>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                        )
+                      })()}
                       <div style={s.cardActions}>
                         <button
                           onClick={() => runSingle(b.id)}

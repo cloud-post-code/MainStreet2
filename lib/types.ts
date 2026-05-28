@@ -130,12 +130,41 @@ export type ScrapeStatus = 'never' | 'running' | 'success' | 'error' | 'cancelle
 
 export const STALE_THRESHOLD_DAYS = 7
 
+export type Availability = 'in_stock' | 'out_of_stock' | 'limited' | 'unknown'
+
 export interface RawProduct {
   name: string
   price: number
   url: string
   imageUrls: string[]
   description?: string
+  availability?: Availability
+  stockStatus?: string
+  sku?: string
+}
+
+export interface ProductEnrichment {
+  productId: string
+  category: string | null
+  subcategory: string | null
+  tags: string[]
+  attributes: {
+    color?: string
+    material?: string
+    size?: string
+    style?: string
+    occasion?: string
+    [k: string]: string | undefined
+  }
+  visionDescription: string | null
+  searchKeywords: string[]
+  useCases: string[]
+  targetCustomer: string | null
+  giftFit: string | null
+  brandVibe: string | null
+  model: string
+  enrichedAt: string
+  sourceImageUrl: string | null
 }
 
 // --- Mason agent UI blocks --------------------------------------------------

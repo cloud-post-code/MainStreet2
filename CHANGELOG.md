@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1.0] - 2026-05-28
+
+### Added
+- **Live progress bar on scraper pages.** Triggering a scrape from the dashboard now opens a real-time SSE connection and drives a per-card progress bar showing the current step (discovering, scraping N/total products, complete) and a time-remaining estimate. The config page (`/admin/scraper/new`) shows a matching labeled progress bar above the log panel. If the SSE drops mid-run, the card automatically polls until the job settles.
+
 ## [0.2.0.1] - 2026-05-28
 
 ### Fixed

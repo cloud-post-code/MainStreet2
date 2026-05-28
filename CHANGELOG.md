@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2.0] - 2026-05-28
+
+### Added
+- **Admin Users section.** New `/admin/users` page lists all registered shopper accounts — name, email, and sign-up date — with live search filtering. Accessible from the admin sidebar alongside Companies, Products, and Scraper.
+- **Default dev admin account.** Running `scripts/seed-admin.ts` now also seeds `admin@admin.com` / `admin123` for zero-friction local login, alongside the existing env-var-driven admin account.
+
 ## [0.2.1.0] - 2026-05-28
 
 ### Added

@@ -53,12 +53,12 @@ function parseLogMessage(msg: string, prev: ProgressState): ProgressState {
     next.step = msg; next.percent = 15
   } else if (msg.startsWith('Discovery complete:') || msg.startsWith('Discovered')) {
     const m = msg.match(/(\d+) product/)
-    if (m) next.totalProducts = parseInt(m[1])
+    if (m) next.totalProducts = parseInt(m[1], 10)
     next.step = `Found ${next.totalProducts} products to scrape`
     next.percent = 28
   } else if (msg.startsWith('Scraping') && msg.includes('product detail pages')) {
     const m = msg.match(/Scraping (\d+)/)
-    if (m) next.totalProducts = parseInt(m[1])
+    if (m) next.totalProducts = parseInt(m[1], 10)
     next.step = `Scraping ${next.totalProducts} products...`
     next.percent = 30
   } else if (msg.startsWith('+ new:') || msg.startsWith('~ price:') || msg.startsWith('SKIP ')) {
@@ -133,7 +133,7 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
         }))
         setRunningIds(prev => { const n = new Set(prev); n.delete(id); return n })
         es.close(); esMapRef.current.delete(id)
-        fetch('/api/admin/scraper/status?all=true').then(r => r.json()).then(({ businesses: updated }) => setBusinesses(updated))
+        fetch('/api/admin/scraper/status?all=true').then(r => r.json()).then(({ businesses: updated }) => setBusinesses(updated)).catch(() => {})
       } else {
         setProgress(prev => {
           const curr = prev[id] ?? { percent: 2, step: '', totalProducts: 0, doneProducts: 0, startedAt: Date.now() }

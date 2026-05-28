@@ -56,11 +56,11 @@ export default function ScraperNew({ business, businesses }: Props) {
       next.step = msg; next.percent = 15
     } else if (msg.startsWith('Discovery complete:') || msg.startsWith('Discovered')) {
       const m = msg.match(/(\d+) product/)
-      if (m) next.totalProducts = parseInt(m[1])
+      if (m) next.totalProducts = parseInt(m[1], 10)
       next.step = `Found ${next.totalProducts} products to scrape`; next.percent = 28
     } else if (msg.startsWith('Scraping') && msg.includes('product detail pages')) {
       const m = msg.match(/Scraping (\d+)/)
-      if (m) next.totalProducts = parseInt(m[1])
+      if (m) next.totalProducts = parseInt(m[1], 10)
       next.step = `Scraping ${next.totalProducts} products...`; next.percent = 30
     } else if (msg.startsWith('+ new:') || msg.startsWith('~ price:') || msg.startsWith('SKIP ')) {
       next.doneProducts = prev.doneProducts + 1

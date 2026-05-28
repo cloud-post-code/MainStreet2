@@ -38,7 +38,7 @@ export default function CompanyForm({ initial, categories, companyId }: Props) {
     url: initial?.url ?? '',
     town: initial?.town ?? '',
     category_id: initial?.category_id ?? '',
-    verification_status: initial?.verification_status ?? 'pending_review',
+    verification_status: initial?.verification_status ?? 'verified',
     contact_name: initial?.contact_name ?? '',
     contact_email: initial?.contact_email ?? '',
     contact_phone: initial?.contact_phone ?? '',

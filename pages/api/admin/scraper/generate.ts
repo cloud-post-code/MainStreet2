@@ -66,12 +66,14 @@ Return ONLY valid JSON, no explanation.`
     return res.status(500).json({ error: `Config generation failed: ${err}` })
   }
 
-  // If a businessId is provided, save selectors and notes to the business
+  // If a businessId is provided, save url, selectors, and notes to the business
   if (businessId) {
     const db = getAdminClient()
     await db.from('businesses').update({
+      url,
       selectors,
       scrape_notes: notes ?? null,
+      updated_at: new Date().toISOString(),
     }).eq('id', businessId)
   }
 

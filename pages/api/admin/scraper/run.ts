@@ -49,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       scrape_status: 'success',
       last_scraped: new Date().toISOString(),
       last_scrape_diff: diff,
+      updated_at: new Date().toISOString(),
     }).eq('id', businessId)
 
     return res.status(200).json({ upserted, errors, enriched, diff, mode: resolvedMode })

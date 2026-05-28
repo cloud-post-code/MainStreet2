@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0.1] - 2026-05-28
+
+### Fixed
+- **Production deploy of v0.2.0.0 was broken** — `pages/api/inbox/reply.ts` still used `export const runtime = 'edge'` while transitively importing `@anthropic-ai/sdk`, which calls `process.platform` / `process.getuid`. Next.js compiled with "A Node.js API is used … not supported in the Edge Runtime" warnings and Vercel failed the deploy. Converted the inbox responder to a Node.js serverless API route (same shape as `pages/api/chat.ts`). Inbox replies now build and ship.
+
 ## [0.2.0.0] - 2026-05-28
 
 ### Changed

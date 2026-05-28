@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0.0] - 2026-05-28
+
+### Changed
+- **Mason is now an agent.** The hardcoded gpt-4o brain (always-search heuristic, single-shot response, no memory) is replaced with an Anthropic Claude Sonnet 4.6 tool-use loop. Mason plans first, decides which tools to call, can search products and shops, fetch hours and address details, recall past customer context, and render typed UI blocks. The frontend chat shell, design tokens, session/turn-limit plumbing, OpenAI product embeddings, and Supabase data layer are unchanged.
+- **Mason in the inbox uses the same agent.** `pages/api/inbox/reply.ts` now runs the shared agent in `mode: 'inbox'` so proactive thread replies get the same tool access (search, shop lookup, customer context) instead of a separate prompt.
+- **Conversation history now stores tool calls.** `conversations.messages` JSONB persists the full Anthropic-shaped message chain — text, `tool_use`, and `tool_result` blocks — so multi-turn sessions resume mid-loop correctly. Old string-content rows still load.
+
+### Added
+- **Visible planning.** Mason emits a `plan` UI block before non-trivial requests so customers see the route he intends to take.
+- **Long-term customer memory.** New `recall_customer_context` tool joins recent orders, top preference signals (viewed / dismissed / purchased), and recent search topics for the resolved customer id. Authenticated users see their own history; fingerprinted sessions see their own.
+- **Preference signal logging.** New `record_preference` tool writes to `customer_preference_signals` when Mason notices a customer like, dismiss, or purchase intent, so future sessions get smarter.
+- **Shop search and lookup.** New `lib/shops.ts` (`searchShops`, `getShopById`) plus `search_shops`, `get_shop_details`, and `show_shop` tools — Mason can answer "where do I find X" and surface a shop card with address.
+- **Typed UI block protocol.** SSE now streams `text_start` / `text_delta` / `text_end` / `block` events. Blocks: `plan`, `question` (with tappable chip options), `product_strip`, `shop_card`. Frontend renders each by type instead of parsing ad-hoc events.
+- **Filtered product search.** `searchProducts(query, filters)` accepts `min_price`, `max_price`, `business_id`, `limit`. Internally pulls a wider net when filtering so post-filter doesn't starve the agent.
+- **Product hydration helper.** `getProductsByIds` rehydrates `show_products` cards from the database so Mason cannot fabricate a card payload — he only passes ids.
+
+### Removed
+- **`deriveSearchQuery`** — the model now forms its own search queries via tool args, so the separate gpt-4o-mini extraction call is gone.
+- **`shouldSearch` heuristic** and the always-true gate it replaced — searches happen when Mason decides to, not on every turn.
+
 ## [0.1.1.0] - 2026-05-26
 
 ### Fixed

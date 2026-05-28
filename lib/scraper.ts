@@ -1,7 +1,8 @@
-import { chromium, type Browser, type Page } from 'playwright'
+import { type Browser, type Page } from 'playwright-core'
 import { getSupabaseClient } from './supabase'
 import { sanitizeProductText } from './scraper-sanitize'
 import { enrichProduct, enrichmentToEmbedText } from './enrichment'
+import { launchBrowser } from './browser'
 import type { ScrapeDiff, RawProduct, Availability } from './types'
 export { STALE_THRESHOLD_DAYS, type RawProduct } from './types'
 
@@ -64,7 +65,7 @@ export async function discoverProductUrls(
   const { log = () => {}, signal } = opts
   if (signal?.aborted) return []
 
-  const browser = await chromium.launch({ headless: true })
+  const browser = await launchBrowser()
   const page = await browser.newPage()
   const onAbort = () => { browser.close().catch(() => {}) }
   signal?.addEventListener('abort', onAbort)
@@ -291,7 +292,7 @@ export async function scrapeProductDetail(
   const { log = () => {}, signal } = opts
   if (signal?.aborted) return null
 
-  const browser = sharedBrowser ?? await chromium.launch({ headless: true })
+  const browser = sharedBrowser ?? await launchBrowser()
   const page = await browser.newPage()
   try {
     await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS })
@@ -323,7 +324,7 @@ export async function scrapeProductDetail(
 
 export async function scrapeShopPage(url: string, opts: ScrapeOptions = {}): Promise<RawProduct[]> {
   const productUrls = await discoverProductUrls(url, opts)
-  const browser = await chromium.launch({ headless: true })
+  const browser = await launchBrowser()
   const out: RawProduct[] = []
   try {
     for (const pu of productUrls) {
@@ -396,7 +397,7 @@ export async function scrapeAndUpsert(
   log(`Scraping ${deduped.length} product detail pages (mode=${mode})`)
 
   // Reuse one Playwright browser across detail fetches
-  const browser = await chromium.launch({ headless: true })
+  const browser = await launchBrowser()
   try {
     for (const pdpUrl of deduped) {
       if (signal?.aborted) break

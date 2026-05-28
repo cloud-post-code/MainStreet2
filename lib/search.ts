@@ -46,7 +46,9 @@ export async function searchProducts(query: string, limit = 5): Promise<ProductR
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.rpc('match_products', {
     query_embedding: embedding,
-    match_threshold: 0.75,
+    // 0.30 is intentionally lenient — text-embedding-3-small puts semantically related items in the 0.4–0.7 range;
+    // a strict threshold filters out plenty of relevant products. Mason curates the top results.
+    match_threshold: 0.30,
     match_count: limit,
   })
   if (error) throw error

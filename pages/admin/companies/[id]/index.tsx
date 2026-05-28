@@ -12,8 +12,19 @@ interface Company {
   id: string; name: string; url: string; town: string; status: string; verification_status: string
   contact_name: string | null; contact_email: string | null; contact_phone: string | null
   address_street: string | null; address_city: string | null; address_state: string | null; address_zip: string | null
+  last_scraped: string | null; scrape_status: string
   category?: { name: string } | null
   products: Product[]
+}
+
+const VERIF_COLORS: Record<string, { bg: string; text: string }> = {
+  pending_review: { bg: '#fef3c7', text: '#92400e' },
+  verified: { bg: '#dcfce7', text: '#166534' },
+  rejected: { bg: '#fee2e2', text: '#991b1b' },
+  needs_info: { bg: '#dbeafe', text: '#1e40af' },
+}
+const VERIF_LABELS: Record<string, string> = {
+  pending_review: 'Pending', verified: 'Verified', rejected: 'Rejected', needs_info: 'Needs Info',
 }
 
 interface Props { company: Company }
@@ -78,7 +89,22 @@ export default function CompanyDetail({ company }: Props) {
               </span>
             </dd>
             <dt style={styles.dt}>Verification</dt>
-            <dd style={styles.dd}><span style={{ ...styles.badge, background: '#fef3c7', color: '#92400e' }}>{company.verification_status}</span></dd>
+            <dd style={styles.dd}>
+              {(() => {
+                const vc = VERIF_COLORS[company.verification_status] ?? { bg: '#f3f4f6', text: '#6b7280' }
+                return <span style={{ ...styles.badge, background: vc.bg, color: vc.text }}>{VERIF_LABELS[company.verification_status] ?? company.verification_status}</span>
+              })()}
+            </dd>
+            <dt style={styles.dt}>Last Scraped</dt>
+            <dd style={styles.dd}>
+              {company.last_scraped
+                ? new Date(company.last_scraped).toLocaleDateString()
+                : <span style={{ color: '#d1d5db' }}>Never</span>}
+              {' '}
+              <Link href={`/admin/scraper/new?businessId=${company.id}`} style={{ fontSize: 12, color: '#015237' }}>
+                {company.last_scraped ? 'Re-scrape' : 'Scrape now'}
+              </Link>
+            </dd>
           </dl>
         </div>
         <div style={styles.card}>

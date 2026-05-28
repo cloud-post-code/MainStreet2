@@ -359,12 +359,18 @@ export async function scrapeAndUpsert(
 
   const { data: existingProducts } = await supabase
     .from('products')
-    .select('url, name, price')
+    .select('url, name, price, product_field_overrides(field_name)')
     .eq('business_id', target.businessId)
 
   const priceByUrl = new Map<string, { name: string; price: number }>()
+  const lockedByUrl = new Map<string, Set<string>>()
   for (const p of (existingProducts ?? [])) {
     priceByUrl.set(p.url, { name: p.name, price: Number(p.price) })
+    const locked = new Set<string>(
+      ((p as { product_field_overrides?: Array<{ field_name: string }> }).product_field_overrides ?? [])
+        .map(o => o.field_name)
+    )
+    if (locked.size > 0) lockedByUrl.set(p.url, locked)
   }
 
   // Resolve list of product URLs depending on mode
@@ -428,22 +434,25 @@ export async function scrapeAndUpsert(
         const primaryImage = product.imageUrls[0] ?? null
         const embedding = await embedText(baseEmbedInput)
 
+        const locked = lockedByUrl.get(product.url) ?? new Set<string>()
+        const upsertPayload: Record<string, unknown> = {
+          business_id: target.businessId,
+          business_name: target.businessName,
+          name: cleanName,
+          description: cleanDesc || null,
+          url: product.url,
+          image_url: primaryImage,
+          sku: product.sku ?? null,
+          embedding,
+          last_seen: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        if (!locked.has('price')) upsertPayload.price = product.price
+        if (!locked.has('availability')) upsertPayload.availability = product.availability ?? 'unknown'
+        if (!locked.has('stock_status')) upsertPayload.stock_status = product.stockStatus ?? null
+
         const { data: upsertedRow, error: upsertErr } = await supabase.from('products').upsert(
-          {
-            business_id: target.businessId,
-            business_name: target.businessName,
-            name: cleanName,
-            description: cleanDesc || null,
-            price: product.price,
-            url: product.url,
-            image_url: primaryImage,
-            sku: product.sku ?? null,
-            availability: product.availability ?? 'unknown',
-            stock_status: product.stockStatus ?? null,
-            embedding,
-            last_seen: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
+          upsertPayload,
           { onConflict: 'url' },
         ).select('id').single()
 

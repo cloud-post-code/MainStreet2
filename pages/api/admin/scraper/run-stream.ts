@@ -64,6 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         scrape_status: 'success',
         last_scraped: new Date().toISOString(),
         last_scrape_diff: diff,
+        updated_at: new Date().toISOString(),
       }).eq('id', businessId)
       send(`DONE: ${upserted} products, ${errors} errors. +${diff.added} new, ${diff.priceChanges.length} price changes, ${diff.removed} removed`)
     }

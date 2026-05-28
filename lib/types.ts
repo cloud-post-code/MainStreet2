@@ -1,7 +1,18 @@
-// OpenAI-compatible message format (also matches Anthropic wire format for history storage)
+// Anthropic-shaped message format for conversation history storage.
+// Old rows that stored plain strings still hydrate fine via the union below.
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | {
+      type: 'tool_result'
+      tool_use_id: string
+      content: string | Array<{ type: 'text'; text: string }>
+      is_error?: boolean
+    }
+
 export interface MessageParam {
   role: 'user' | 'assistant'
-  content: string | Array<{ type: string; text?: string; tool_use_id?: string }>
+  content: string | ContentBlock[]
 }
 
 export interface ConversationRow {
@@ -35,9 +46,18 @@ export interface Business {
   name: string
   url: string
   town: string
-  selectors: Record<string, string>
-  last_scraped: string | null
-  product_count_baseline: number
+  selectors?: Record<string, string>
+  last_scraped?: string | null
+  product_count_baseline?: number
+  category_id?: string | null
+  address_street?: string | null
+  address_city?: string | null
+  address_state?: string | null
+  address_zip?: string | null
+  contact_name?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+  status?: 'active' | 'deactivated' | null
 }
 
 export interface ChatRequest {
@@ -117,3 +137,36 @@ export interface RawProduct {
   imageUrls: string[]
   description?: string
 }
+
+// --- Mason agent UI blocks --------------------------------------------------
+
+export interface PlanStep {
+  description: string
+  tool?: string
+}
+
+export interface PlanData {
+  goal: string
+  steps: PlanStep[]
+}
+
+export interface QuestionData {
+  question: string
+  options?: string[]
+}
+
+export interface ProductStripData {
+  headline?: string
+  products: ProductResult[]
+}
+
+export interface ShopCardData {
+  shop: Business
+  reason?: string
+}
+
+export type Block =
+  | { type: 'plan'; data: PlanData }
+  | { type: 'question'; data: QuestionData }
+  | { type: 'product_strip'; data: ProductStripData }
+  | { type: 'shop_card'; data: ShopCardData }

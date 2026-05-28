@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '../../auth/[...nextauth]'
 import { getAdminClient } from '../../../../lib/admin/supabase-admin'
+import { generateProductEmbedding } from '../../../../lib/search'
 
 function stripHtml(str: string): string {
   return str.replace(/<[^>]*>/g, '').trim()
@@ -39,6 +40,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     updates.updated_at = new Date().toISOString()
+
+    // Re-embed when searchable text changes
+    if ('name' in updates || 'description' in updates) {
+      try {
+        const { data: existing } = await db.from('products').select('name, description').eq('id', id).single()
+        const name = String(updates.name ?? existing?.name ?? '')
+        const description = String(updates.description ?? existing?.description ?? '')
+        const embedText = [name, description].filter(Boolean).join(' ')
+        updates.embedding = await generateProductEmbedding(embedText)
+      } catch {
+        // Non-fatal
+      }
+    }
 
     const { data, error } = await db.from('products').update(updates).eq('id', id).select('id').single()
     if (error) return res.status(500).json({ error: error.message })

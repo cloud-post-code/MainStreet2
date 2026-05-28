@@ -2,8 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '../../auth/[...nextauth]'
 import { getAdminClient } from '../../../../lib/admin/supabase-admin'
+import { launchBrowser } from '../../../../lib/browser'
 import Anthropic from '@anthropic-ai/sdk'
-import { chromium } from 'playwright'
 
 const client = new Anthropic()
 
@@ -17,7 +17,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Render page with Playwright to handle JS-heavy storefronts
   let html = ''
-  const browser = await chromium.launch({ headless: true })
+  const browser = await launchBrowser()
   try {
     const page = await browser.newPage()
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })

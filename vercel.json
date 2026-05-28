@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "pages/api/admin/scraper/generate.ts": { "memory": 1024, "maxDuration": 300 },
+    "pages/api/admin/scraper/run.ts": { "memory": 1024, "maxDuration": 300 },
+    "pages/api/admin/scraper/run-stream.ts": { "memory": 1024, "maxDuration": 300 },
+    "pages/api/admin/scraper/run-bulk.ts": { "memory": 1024, "maxDuration": 300 },
+    "pages/api/admin/scraper/preview.ts": { "memory": 1024, "maxDuration": 300 }
+  }
+}

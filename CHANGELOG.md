@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1.0] - 2026-05-28
+
+### Added
+- **Seed Data admin page.** New `/admin/seed-data` page for bulk-importing CSV product data. Supports multi-file uploads and previews before commit. Designed to streamline catalog management for partners like Blake Hill Preserves.
+
+### Fixed
+- **Scraper admin data schema.** Applied migration 006_scraper_admin to add `verified_at` timestamp and `is_verified` flag to the `company_scraper_states` table. Enables tracking which companies have been verified during scrape operations.
+- **Companies page error handling.** Added defensive null checks and error boundaries to the companies listing page to prevent crashes when shop metadata is incomplete or missing.
+
 ## [0.2.0.2] - 2026-05-28
 
 ### Fixed

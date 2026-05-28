@@ -17,7 +17,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const results = await searchProducts(query.trim(), limit ?? 5)
+    const results = await searchProducts(query.trim(), { limit: limit ?? 5 })
     return new Response(JSON.stringify({ results }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

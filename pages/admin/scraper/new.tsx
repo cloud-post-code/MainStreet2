@@ -31,6 +31,9 @@ export default function ScraperNew({ business, businesses }: Props) {
   const [dryLoading, setDryLoading] = useState(false)
   const [dryError, setDryError] = useState('')
 
+  const [scrapeMode, setScrapeMode] = useState<'company' | 'products'>('company')
+  const [productUrlsText, setProductUrlsText] = useState('')
+
   const [logLines, setLogLines] = useState<string[]>([])
   const [running, setRunning] = useState(false)
   const [runDone, setRunDone] = useState(false)
@@ -59,6 +62,42 @@ export default function ScraperNew({ business, businesses }: Props) {
     setGenLoading(false)
     if (!res.ok) { setGenError(data.error); return }
     setSelectors(data.selectors)
+
+    if (businessId) {
+      if (scrapeMode === 'company') {
+        handleRun()
+      } else {
+        handleRunProducts()
+      }
+    }
+  }
+
+  async function handleRunProducts() {
+    if (!businessId) return
+    const productUrls = productUrlsText
+      .split(/[\n,]/)
+      .map((u: string) => u.trim())
+      .filter((u: string) => /^https?:\/\//.test(u))
+    if (productUrls.length === 0) return
+
+    setLogLines([`Scraping ${productUrls.length} product URL${productUrls.length !== 1 ? 's' : ''}...`])
+    setRunning(true)
+    setRunDone(false)
+    setRunSummary('')
+
+    const res = await fetch('/api/admin/scraper/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId, mode: 'products', productUrls }),
+    })
+    const result = await res.json()
+    setRunning(false)
+    setRunDone(true)
+    if (res.ok) {
+      setRunSummary(`DONE: ${result.upserted} products, ${result.errors} errors. +${result.diff?.added ?? 0} new, ${result.diff?.priceChanges?.length ?? 0} price changes`)
+    } else {
+      setRunSummary(`ERROR: ${result.error}`)
+    }
   }
 
   async function handleDryRun() {
@@ -148,8 +187,36 @@ export default function ScraperNew({ business, businesses }: Props) {
           />
         </div>
 
+        <div style={s.field}>
+          <label style={s.label}>Scrape mode</label>
+          <div style={{ display: 'flex', gap: 20 }}>
+            {(['company', 'products'] as const).map(m => (
+              <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                <input type="radio" value={m} checked={scrapeMode === m} onChange={() => setScrapeMode(m)} />
+                {m === 'company' ? 'Company — auto-discover all products' : 'Products — specific URLs'}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {scrapeMode === 'products' && (
+          <div style={s.field}>
+            <label style={s.label}>Product URLs (one per line)</label>
+            <textarea
+              value={productUrlsText}
+              onChange={e => setProductUrlsText(e.target.value)}
+              placeholder="https://shop.com/products/item-1&#10;https://shop.com/products/item-2"
+              style={{ ...s.input, height: 96, resize: 'vertical' }}
+            />
+          </div>
+        )}
+
         <button onClick={handleGenerate} disabled={!url || genLoading} style={s.primaryBtn}>
-          {genLoading ? 'Generating config...' : 'Generate Config'}
+          {genLoading
+            ? 'Working...'
+            : businessId
+              ? `Add & Scrape (${scrapeMode})`
+              : 'Generate Config'}
         </button>
         {genError && <div style={s.error}>{genError}</div>}
       </div>
@@ -213,24 +280,26 @@ export default function ScraperNew({ business, businesses }: Props) {
         </div>
       )}
 
-      {/* Step 4: Run */}
-      {businessId && (
+      {/* Scrape log — auto-shown when scrape triggers */}
+      {businessId && (logLines.length > 0 || running || runDone) && (
         <div style={s.section}>
-          <h2 style={s.sectionTitle}>4. Run Scrape</h2>
-          <button onClick={handleRun} disabled={running || !businessId} style={s.primaryBtn}>
-            {running ? 'Scraping...' : 'Run Full Scrape'}
-          </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h2 style={{ ...s.sectionTitle, marginBottom: 0 }}>Scrape Log</h2>
+            {!running && (
+              <button onClick={handleRun} style={{ ...s.secondaryBtn, fontSize: 12 }}>
+                Re-run (company)
+              </button>
+            )}
+          </div>
 
-          {(logLines.length > 0 || running || runDone) && (
-            <div ref={logRef} style={s.logPanel}>
-              {logLines.map((line, i) => (
-                <div key={i} style={{ color: line.startsWith('ERROR') ? '#ef4444' : line.startsWith('+') ? '#22c55e' : line.startsWith('~') ? '#f59e0b' : '#d1fae5' }}>
-                  {line}
-                </div>
-              ))}
-              {running && <div style={{ color: '#9ca3af' }}>▌</div>}
-            </div>
-          )}
+          <div ref={logRef} style={s.logPanel}>
+            {logLines.map((line, i) => (
+              <div key={i} style={{ color: line.startsWith('ERROR') ? '#ef4444' : line.startsWith('+') ? '#22c55e' : line.startsWith('~') ? '#f59e0b' : '#d1fae5' }}>
+                {line}
+              </div>
+            ))}
+            {running && <div style={{ color: '#9ca3af' }}>▌</div>}
+          </div>
 
           {runDone && runSummary && (
             <div style={{ ...s.diffCard, marginTop: 12 }}>

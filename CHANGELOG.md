@@ -2,9 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0.3] - 2026-05-28
+## [0.2.1.0] - 2026-05-28
+
+### Added
+- **Seed Data admin page.** New `/admin/seed-data` page for bulk-importing CSV product data. Supports multi-file uploads and previews before commit. Designed to streamline catalog management for partners like Blake Hill Preserves.
 
 ### Fixed
+- **Scraper admin data schema.** Applied migration 006_scraper_admin to add `verified_at` timestamp and `is_verified` flag to the `company_scraper_states` table. Enables tracking which companies have been verified during scrape operations.
+- **Companies page error handling.** Added defensive null checks and error boundaries to the companies listing page to prevent crashes when shop metadata is incomplete or missing.
 - **Admin scraper now works on production.** Every call to `/api/admin/scraper/generate` and `/api/admin/scraper/run*` returned 500 with `browserType.launch: Executable doesn't exist`. The scraper used the full `playwright` package, which expects Chromium binaries to be installed at runtime — Vercel serverless functions ship without Chromium. Replaced with `playwright-core` + `@sparticuz/chromium` (Lambda-compatible Chromium tarball). Added `lib/browser.ts` with an env-aware `launchBrowser()` helper: uses Sparticuz Chromium on Vercel/Lambda, the cached local Chromium binary otherwise (CLI `npm run scrape` still works unchanged). Added `vercel.json` to bump scraper function memory to 1024 MB and `maxDuration` to 300 s so Chromium has room to launch and crawl shops without timing out.
 
 ## [0.2.0.2] - 2026-05-28

@@ -170,7 +170,8 @@ async function main() {
 
   let upserted = 0
   let errors = 0
-  const batch: Record<string, unknown>[] = []
+  let enriched = 0
+  const skipEnrich = process.argv.includes('--no-enrich')
 
   for (const product of shopifyProducts) {
     // Use the first (cheapest) in-stock variant, or the first variant
@@ -187,49 +188,65 @@ async function main() {
     const cleanDesc = rawDesc ? sanitizeProductText(rawDesc) : ''
     const imageUrl = product.images[0]?.src ?? null
     const productUrl = `${SHOP_URL}/products/${product.handle}`
+    const availability = variant.available ? 'in_stock' : 'out_of_stock'
+    const stockStatus = variant.available ? null : 'Sold out'
 
     try {
       const embedInput = [businessName, cleanName, cleanDesc, !isNaN(price) ? `$${price}` : ''].filter(Boolean).join(' ')
       const embedding = await embedText(embedInput)
 
-      batch.push({
-        business_id: businessId,
-        business_name: businessName,
-        name: cleanName,
-        description: cleanDesc || null,
-        price,
-        url: productUrl,
-        image_url: imageUrl,
-        sku: variant.sku || null,
-        availability: variant.available ? 'in_stock' : 'out_of_stock',
-        category_id: categoryId,
-        status: 'active',
-        embedding,
-        last_seen: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      const { data: row, error: upsertErr } = await db.from('products').upsert(
+        {
+          business_id: businessId,
+          business_name: businessName,
+          name: cleanName,
+          description: cleanDesc || null,
+          price,
+          url: productUrl,
+          image_url: imageUrl,
+          sku: variant.sku || null,
+          availability,
+          stock_status: stockStatus,
+          category_id: categoryId,
+          status: 'active',
+          embedding,
+          last_seen: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'url' },
+      ).select('id').single()
 
-      process.stdout.write(`  [${upserted + errors + 1}/${shopifyProducts.length}] ${cleanName}\r`)
+      if (upsertErr || !row) {
+        console.error(`\n  Upsert failed for "${rawName}":`, upsertErr?.message)
+        errors++
+        continue
+      }
+
+      upserted++
+      process.stdout.write(`  [${upserted + errors}/${shopifyProducts.length}] ${cleanName}\r`)
+
+      if (!skipEnrich && imageUrl) {
+        const { enrichProduct } = await import('../lib/enrichment')
+        const ok = await enrichProduct({
+          productId: row.id,
+          businessName,
+          name: cleanName,
+          price,
+          description: cleanDesc,
+          imageUrl,
+        })
+        if (ok) enriched++
+      }
     } catch (err) {
-      console.error(`\n  Embed failed for "${rawName}":`, err)
+      console.error(`\n  Embed/upsert failed for "${rawName}":`, err)
       errors++
-    }
-
-    upserted++
-  }
-
-  // Upsert in a single batch (conflict on url)
-  if (batch.length > 0) {
-    const { error } = await db.from('products').upsert(batch, { onConflict: 'url' })
-    if (error) {
-      console.error('\nBatch upsert failed:', error.message)
-      process.exit(1)
     }
   }
 
   console.log(`\n\nDone!`)
-  console.log(`  Products upserted: ${batch.length}`)
-  console.log(`  Embed errors:      ${errors}`)
+  console.log(`  Products upserted: ${upserted}`)
+  console.log(`  Products enriched: ${enriched}`)
+  console.log(`  Errors:            ${errors}`)
   console.log(`  Business ID:       ${businessId}`)
 }
 

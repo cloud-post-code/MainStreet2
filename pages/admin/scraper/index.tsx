@@ -42,6 +42,8 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
   const [runningIds, setRunningIds] = useState<Set<string>>(
     new Set(initial.filter(b => b.scrape_status === 'running').map(b => b.id))
   )
+  const [productMode, setProductMode] = useState<Record<string, string>>({})
+  const [openProductBox, setOpenProductBox] = useState<string | null>(null)
 
   // Poll status for running businesses
   useEffect(() => {
@@ -65,6 +67,22 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ businessId: id }),
+    })
+  }
+
+  async function runProductUrls(id: string) {
+    const raw = productMode[id] ?? ''
+    const productUrls = raw
+      .split(/[\n,]/)
+      .map(u => u.trim())
+      .filter(u => /^https?:\/\//.test(u))
+    if (productUrls.length === 0) return
+    setRunningIds(prev => new Set([...prev, id]))
+    setOpenProductBox(null)
+    await fetch('/api/admin/scraper/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId: id, mode: 'products', productUrls }),
     })
   }
 
@@ -146,13 +164,38 @@ export default function ScraperIndex({ businesses: initial, staleCount }: Props)
                           disabled={isRunning}
                           style={{ ...s.runBtn, opacity: isRunning ? 0.6 : 1 }}
                         >
-                          {isRunning ? 'Running...' : 'Scrape'}
+                          {isRunning ? 'Running...' : 'Scrape company'}
+                        </button>
+                        <button
+                          onClick={() => setOpenProductBox(prev => prev === b.id ? null : b.id)}
+                          disabled={isRunning}
+                          style={{ ...s.configLink, border: 'none', cursor: 'pointer' }}
+                        >
+                          Products…
                         </button>
                         <Link href={`/admin/scraper/new?businessId=${b.id}`} style={s.configLink}>
                           Config
                         </Link>
                         <Link href={`/admin/companies/${b.id}`} style={s.configLink}>View</Link>
                       </div>
+                      {openProductBox === b.id && (
+                        <div style={s.productBox}>
+                          <textarea
+                            placeholder="Paste product URLs, one per line"
+                            value={productMode[b.id] ?? ''}
+                            onChange={e => setProductMode(prev => ({ ...prev, [b.id]: e.target.value }))}
+                            style={s.productTextarea}
+                            rows={4}
+                          />
+                          <button
+                            onClick={() => runProductUrls(b.id)}
+                            disabled={isRunning || !(productMode[b.id] ?? '').trim()}
+                            style={s.runBtn}
+                          >
+                            Scrape these products
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -203,4 +246,6 @@ const s: Record<string, React.CSSProperties> = {
   addBtn: { padding: '8px 16px', background: '#015237', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' },
   bulkMsg: { marginBottom: 16, padding: '10px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 13, color: '#92400e' },
   empty: { textAlign: 'center', color: '#9ca3af', padding: '60px 0', fontSize: 15 },
+  productBox: { marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 },
+  productTextarea: { width: '100%', fontSize: 12, padding: 6, borderRadius: 6, border: '1px solid rgba(0,0,0,0.2)', fontFamily: 'inherit', resize: 'vertical' },
 }

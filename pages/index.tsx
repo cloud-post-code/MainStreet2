@@ -37,7 +37,8 @@ function emptyAssistant(): ChatMessage {
 }
 
 function threadPreview(thread: InboxThread): string {
-  const last = [...thread.messages].reverse().find(m => m.role === 'assistant')
+  const messages = Array.isArray(thread.messages) ? thread.messages : []
+  const last = [...messages].reverse().find(m => m.role === 'assistant')
   const text = last ? (typeof last.content === 'string' ? last.content : '') : thread.subject
   return text.length > 80 ? text.slice(0, 77) + '…' : text
 }
@@ -71,6 +72,7 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
+    if (!isAuthenticated) return
     fetch('/api/inbox/threads')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
@@ -79,7 +81,7 @@ export default function Home() {
         setInboxUnread(d.unreadCount ?? 0)
       })
       .catch(() => {})
-  }, [])
+  }, [isAuthenticated])
 
   // Check for expired session on mount, or a ?session= param from history continuation
   useEffect(() => {

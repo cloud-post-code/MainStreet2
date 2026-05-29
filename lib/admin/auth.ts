@@ -6,7 +6,7 @@ export async function requireAdminSession(
   ctx: GetServerSidePropsContext
 ): Promise<{ session: Awaited<ReturnType<typeof getServerSession>> } | GetServerSidePropsResult<never>> {
   const session = await getServerSession(ctx.req, ctx.res, authOptions)
-  if (!session) {
+  if (!session || (session.user as { role?: string }).role !== 'admin') {
     return {
       redirect: { destination: '/admin/login', permanent: false },
     }

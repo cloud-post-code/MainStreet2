@@ -72,8 +72,9 @@ export default function Home() {
 
   useEffect(() => {
     fetch('/api/inbox/threads')
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : null)
       .then(d => {
+        if (!d) return
         setInboxThreads(d.threads ?? [])
         setInboxUnread(d.unreadCount ?? 0)
       })
@@ -699,6 +700,7 @@ const styles = `
   .choice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
   .choice-card { background: var(--cream); border: 1.5px solid rgba(190,110,70,0.2); border-radius: 10px; padding: 12px 10px; cursor: pointer; text-align: left; transition: border-color 150ms, box-shadow 150ms; display: flex; flex-direction: column; gap: 6px; }
   .choice-card:hover { border-color: var(--primary); box-shadow: 0 2px 10px rgba(1,82,55,0.12); }
+  .choice-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   .choice-img { height: 80px; border-radius: 6px; overflow: hidden; background: rgba(190,110,70,0.1); display: flex; align-items: center; justify-content: center; }
   .choice-img img { width: 100%; height: 100%; object-fit: cover; }
   .choice-label { font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: var(--primary); line-height: 1.3; }

@@ -84,6 +84,7 @@ export const getServerSideProps: GetServerSideProps = async ctx => {
     .from('users')
     .select('id, name, email, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
+    .limit(500)
 
   return {
     props: {

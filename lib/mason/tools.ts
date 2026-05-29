@@ -308,7 +308,7 @@ const buildArtifactTool: ToolDef = {
       const choices = rawChoices.slice(0, 4).map((c: Record<string, unknown>) => ({
         label: String(c.label ?? ''),
         description: typeof c.description === 'string' ? c.description : undefined,
-        image_url: typeof c.image_url === 'string' ? c.image_url : undefined,
+        image_url: typeof c.image_url === 'string' && /^https?:\/\//.test(c.image_url) ? c.image_url : undefined,
         value: String(c.value ?? c.label ?? ''),
       }))
       const headline = typeof input.headline === 'string' ? input.headline : undefined

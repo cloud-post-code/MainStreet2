@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .order('created_at', { ascending: false })
     .range(from, to)
 
-  if (error) return res.status(500).json({ error: error.message })
+  if (error) return res.status(500).json({ error: 'Failed to load users' })
 
   return res.status(200).json({ users: data ?? [], total: count ?? 0, page, limit })
 }

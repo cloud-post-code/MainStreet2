@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Head from 'next/head'
 import { useSession } from 'next-auth/react'
-import type { Block, ProductResult, Business } from '../lib/types'
+import type { Block, ProductResult, Business, InboxThread, ArtifactData } from '../lib/types'
 
 type MessageRole = 'user' | 'assistant'
 
@@ -13,6 +13,7 @@ interface ChatMessage {
   role: MessageRole
   parts: Part[]
   isStreaming?: boolean
+  hidden?: boolean
 }
 
 type MasonMood = 'neutral' | 'thinking' | 'searching' | 'happy' | 'curious'
@@ -35,6 +36,13 @@ function emptyAssistant(): ChatMessage {
   return { role: 'assistant', parts: [], isStreaming: true }
 }
 
+function threadPreview(thread: InboxThread): string {
+  const messages = Array.isArray(thread.messages) ? thread.messages : []
+  const last = [...messages].reverse().find(m => m.role === 'assistant')
+  const text = last ? (typeof last.content === 'string' ? last.content : '') : thread.subject
+  return text.length > 80 ? text.slice(0, 77) + '…' : text
+}
+
 export default function Home() {
   const { data: session, status: authStatus } = useSession()
   const isAuthenticated = authStatus === 'authenticated'
@@ -50,6 +58,9 @@ export default function Home() {
   const [chatStarted, setChatStarted] = useState(false)
   const [showSignupNudge, setShowSignupNudge] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [inboxThreads, setInboxThreads] = useState<InboxThread[]>([])
+  const [inboxUnread, setInboxUnread] = useState(0)
+  const [inboxOpen, setInboxOpen] = useState(true)
   const threadRef = useRef<HTMLDivElement>(null)
 
   // Detect admin session (separate auth from shopper session)
@@ -59,6 +70,18 @@ export default function Home() {
       .then(data => { if (data?.user?.role === 'admin') setIsAdmin(true) })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    fetch('/api/inbox/threads')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        setInboxThreads(d.threads ?? [])
+        setInboxUnread(d.unreadCount ?? 0)
+      })
+      .catch(() => {})
+  }, [isAuthenticated])
 
   // Check for expired session on mount, or a ?session= param from history continuation
   useEffect(() => {
@@ -134,10 +157,11 @@ export default function Home() {
     })
   }, [])
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, hidden = false) => {
     if (!text.trim() || isLoading || turnCount >= TURN_LIMIT) return
 
-    setMessages(prev => [...prev, userMessage(text), emptyAssistant()])
+    const userMsg: ChatMessage = { role: 'user', parts: [{ kind: 'text', id: 'u', text, ended: true }], hidden }
+    setMessages(prev => [...prev, userMsg, emptyAssistant()])
     setInput('')
     setChatStarted(true)
     setIsLoading(true)
@@ -208,6 +232,10 @@ export default function Home() {
             updateLast(msg => ({ ...msg, parts: [...msg.parts, { kind: 'block', id, block }] }))
             if (block.type === 'question') setMasonMood('curious')
             if (block.type === 'product_strip' || block.type === 'shop_card') setMasonMood('happy')
+            if (block.type === 'artifact') {
+              const kind = (block.data as ArtifactData).kind
+              setMasonMood(kind === 'choice_picker' ? 'curious' : 'happy')
+            }
           } else if (eventType === 'tool_start') {
             setMasonMood('searching')
           } else if (eventType === 'tool_end') {
@@ -250,6 +278,7 @@ export default function Home() {
   }
 
   const handleChip = (chip: string) => sendMessage(chip)
+  const handleChoice = (value: string) => sendMessage(value, true)
 
   const atTurnLimit = turnCount >= TURN_LIMIT
 
@@ -324,6 +353,27 @@ export default function Home() {
             )}
           </div>
         </header>
+        {inboxThreads.length > 0 && (
+          <div className="inbox-strip">
+            <button className="inbox-strip-toggle" onClick={() => setInboxOpen(o => !o)}>
+              <span className="inbox-strip-label">
+                📬 Inbox
+                {inboxUnread > 0 && <span className="inbox-strip-badge">{inboxUnread}</span>}
+              </span>
+              <span className="inbox-strip-chevron">{inboxOpen ? '▾' : '▸'}</span>
+            </button>
+            {inboxOpen && (
+              <div className="inbox-strip-cards">
+                {inboxThreads.slice(0, 4).map(t => (
+                  <a key={t.id} href="/inbox" className={`inbox-card${!t.read_at ? ' inbox-card-unread' : ''}`}>
+                    <div className="inbox-card-subject">{t.subject}</div>
+                    <div className="inbox-card-preview">{threadPreview(t)}</div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="chat-layout">
           <div className="mason-sidebar">
             <div className="mason-figure">
@@ -334,15 +384,18 @@ export default function Home() {
 
           <div className="thread-col">
             <div className="thread" ref={threadRef}>
-              {messages.map((msg, i) => (
-                <div key={i} className={msg.role === 'user' ? 'msg-user' : 'msg-agent'}>
-                  {msg.role === 'user' ? (
-                    <div className="bubble-user">{msg.parts[0]?.kind === 'text' ? msg.parts[0].text : ''}</div>
-                  ) : (
-                    <AssistantMessage msg={msg} onChip={handleChip} />
-                  )}
-                </div>
-              ))}
+              {messages.map((msg, i) => {
+                if (msg.hidden) return null
+                return (
+                  <div key={i} className={msg.role === 'user' ? 'msg-user' : 'msg-agent'}>
+                    {msg.role === 'user' ? (
+                      <div className="bubble-user">{msg.parts[0]?.kind === 'text' ? msg.parts[0].text : ''}</div>
+                    ) : (
+                      <AssistantMessage msg={msg} onChip={handleChip} onChoice={handleChoice} />
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
             <form className="input-bar" onSubmit={handleSubmit}>
@@ -389,7 +442,7 @@ export default function Home() {
   )
 }
 
-function AssistantMessage({ msg, onChip }: { msg: ChatMessage; onChip: (s: string) => void }) {
+function AssistantMessage({ msg, onChip, onChoice }: { msg: ChatMessage; onChip: (s: string) => void; onChoice: (s: string) => void }) {
   // Empty + streaming = typing indicator
   if (msg.parts.length === 0 && msg.isStreaming) {
     return (
@@ -409,25 +462,16 @@ function AssistantMessage({ msg, onChip }: { msg: ChatMessage; onChip: (s: strin
             </div>
           )
         }
-        return <BlockView key={i} block={part.block} onChip={onChip} />
+        return <BlockView key={i} block={part.block} onChip={onChip} onChoice={onChoice} />
       })}
     </div>
   )
 }
 
-function BlockView({ block, onChip }: { block: Block; onChip: (s: string) => void }) {
+function BlockView({ block, onChip, onChoice }: { block: Block; onChip: (s: string) => void; onChoice: (s: string) => void }) {
   if (block.type === 'plan') {
-    return (
-      <div className="plan-card">
-        <div className="plan-header">Here&apos;s the plan</div>
-        <div className="plan-goal">{block.data.goal}</div>
-        <ol className="plan-steps">
-          {block.data.steps.map((s, i) => (
-            <li key={i}>{s.description}</li>
-          ))}
-        </ol>
-      </div>
-    )
+    // Hidden from customer UI — Mason's internal planning step
+    return null
   }
   if (block.type === 'question') {
     return (
@@ -443,12 +487,67 @@ function BlockView({ block, onChip }: { block: Block; onChip: (s: string) => voi
       </div>
     )
   }
+  if (block.type === 'artifact') {
+    return <ArtifactView data={block.data} onChoice={onChoice} />
+  }
   if (block.type === 'product_strip') {
     return <ProductStrip headline={block.data.headline} products={block.data.products} />
   }
   if (block.type === 'shop_card') {
     return <ShopCard shop={block.data.shop} reason={block.data.reason} />
   }
+  return null
+}
+
+function ArtifactView({ data, onChoice }: { data: ArtifactData; onChoice: (s: string) => void }) {
+  if (data.kind === 'product_grid') {
+    const products = data.products ?? []
+    if (products.length === 0) return null
+    return (
+      <div className="product-strip">
+        {data.headline && <div className="strip-header">{data.headline}</div>}
+        <div className="cards-row">
+          {products.map(p => (
+            <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="product-card">
+              <div className="card-img">
+                {p.image_url ? <img src={p.image_url} alt={p.name} /> : <span>🛍️</span>}
+              </div>
+              <div className="card-shop">{p.business_name}</div>
+              <div className="card-name">{p.name}</div>
+              <div className="card-footer">
+                <span className="card-price">${Number(p.price).toFixed(2)}</span>
+                <span className="local-badge">Local ✓</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (data.kind === 'choice_picker') {
+    const choices = data.choices ?? []
+    if (choices.length === 0) return null
+    return (
+      <div className="choice-picker">
+        {data.question && <div className="choice-question">{data.question}</div>}
+        <div className="choice-grid">
+          {choices.map((c, i) => (
+            <button key={i} type="button" className="choice-card" onClick={() => onChoice(c.value)}>
+              {c.image_url && (
+                <div className="choice-img">
+                  <img src={c.image_url} alt={c.label} />
+                </div>
+              )}
+              <div className="choice-label">{c.label}</div>
+              {c.description && <div className="choice-desc">{c.description}</div>}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return null
 }
 
@@ -597,6 +696,18 @@ const styles = `
   .card-price { font-family: Georgia, serif; font-size: 16px; font-weight: 700; }
   .local-badge { background: var(--accent); color: white; font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 9999px; }
 
+  /* CHOICE PICKER ARTIFACT */
+  .choice-picker { max-width: 560px; }
+  .choice-question { font-size: 14px; line-height: 1.6; margin-bottom: 10px; color: var(--text); }
+  .choice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .choice-card { background: var(--cream); border: 1.5px solid rgba(190,110,70,0.2); border-radius: 10px; padding: 12px 10px; cursor: pointer; text-align: left; transition: border-color 150ms, box-shadow 150ms; display: flex; flex-direction: column; gap: 6px; }
+  .choice-card:hover { border-color: var(--primary); box-shadow: 0 2px 10px rgba(1,82,55,0.12); }
+  .choice-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .choice-img { height: 80px; border-radius: 6px; overflow: hidden; background: rgba(190,110,70,0.1); display: flex; align-items: center; justify-content: center; }
+  .choice-img img { width: 100%; height: 100%; object-fit: cover; }
+  .choice-label { font-family: Georgia, serif; font-size: 13px; font-weight: 700; color: var(--primary); line-height: 1.3; }
+  .choice-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
   /* INPUT BAR */
   .input-bar { background: white; border: 1px solid rgba(122,158,126,0.3); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -610,6 +721,19 @@ const styles = `
 
   .chat-input:disabled { opacity: 0.5; }
 
+  /* INBOX STRIP */
+  .inbox-strip { max-width: 900px; margin: 0 auto; width: 100%; padding: 0 24px; }
+  .inbox-strip-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: none; border: none; border-bottom: 1px solid rgba(1,82,55,0.1); padding: 10px 0; cursor: pointer; }
+  .inbox-strip-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--primary); letter-spacing: 0.04em; text-transform: uppercase; }
+  .inbox-strip-badge { background: var(--secondary); color: white; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9999px; }
+  .inbox-strip-chevron { font-size: 12px; color: var(--muted); }
+  .inbox-strip-cards { display: flex; gap: 10px; padding: 10px 0 4px; overflow-x: auto; }
+  .inbox-card { flex: 0 0 200px; background: white; border: 1px solid rgba(122,158,126,0.25); border-radius: 10px; padding: 10px 12px; text-decoration: none; color: var(--text); transition: box-shadow 150ms; }
+  .inbox-card:hover { box-shadow: 0 2px 10px rgba(1,82,55,0.10); }
+  .inbox-card-unread { border-left: 3px solid var(--secondary); }
+  .inbox-card-subject { font-size: 13px; font-weight: 600; color: var(--primary); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .inbox-card-preview { font-size: 12px; color: var(--muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
   @media (max-width: 640px) {
     .chat-layout { grid-template-columns: 44px 1fr; padding: 12px; }
     .mason-sidebar { width: 44px; }
@@ -617,5 +741,7 @@ const styles = `
     .mason-name { display: none; }
     .bubble-user, .bubble-agent { max-width: 280px; font-size: 13px; }
     .tagline { display: none; }
+    .inbox-strip { padding: 0 12px; }
+    .inbox-card { flex: 0 0 160px; }
   }
 `

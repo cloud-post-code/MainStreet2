@@ -194,8 +194,24 @@ export interface ShopCardData {
   reason?: string
 }
 
+export interface ArtifactChoiceItem {
+  label: string
+  description?: string
+  image_url?: string
+  value: string
+}
+
+export interface ArtifactData {
+  kind: 'product_grid' | 'choice_picker'
+  headline?: string
+  products?: ProductResult[]
+  question?: string
+  choices?: ArtifactChoiceItem[]
+}
+
 export type Block =
   | { type: 'plan'; data: PlanData }
   | { type: 'question'; data: QuestionData }
   | { type: 'product_strip'; data: ProductStripData }
   | { type: 'shop_card'; data: ShopCardData }
+  | { type: 'artifact'; data: ArtifactData }

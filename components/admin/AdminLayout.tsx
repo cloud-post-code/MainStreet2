@@ -13,6 +13,7 @@ const NAV = [
   { href: '/admin/companies', label: 'Companies', active: true },
   { href: '/admin/products', label: 'Products', active: true },
   { href: '/admin/scraper', label: 'Scraper', active: true },
+  { href: '/admin/users', label: 'Users', active: true },
   { href: '#', label: 'Orders', active: false },
 ]
 

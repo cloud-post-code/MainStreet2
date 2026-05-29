@@ -243,22 +243,105 @@ const recordPreferenceTool: ToolDef = {
   },
 }
 
-// --- show_products (UI emission) --------------------------------------------
+// --- build_artifact (UI emission) -------------------------------------------
+
+const buildArtifactTool: ToolDef = {
+  name: 'build_artifact',
+  description:
+    'Build a rich UI artifact for the customer. Use kind="product_grid" to show 1-4 curated product cards (NEVER more than 4 — pick the best matches only). Use kind="choice_picker" to ask a visual question — e.g. pick a style, theme, occasion, or price range — with 2-4 labeled choices and optional images. Use choice_picker instead of a plain text question whenever a visual/contextual choice helps narrow things down. Never ask more than twice per conversation.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      kind: {
+        type: 'string',
+        enum: ['product_grid', 'choice_picker'],
+        description: 'product_grid: show 1-4 product cards. choice_picker: interactive visual question with 2-4 choices.',
+      },
+      headline: { type: 'string', description: 'Short heading shown above the artifact.' },
+      product_ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Required for product_grid. 1-4 product ids from prior search results.',
+      },
+      question: { type: 'string', description: 'Required for choice_picker. The question to ask.' },
+      choices: {
+        type: 'array',
+        description: 'Required for choice_picker. 2-4 choices.',
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string' },
+            description: { type: 'string' },
+            image_url: { type: 'string', description: 'Optional image URL to illustrate this choice.' },
+            value: { type: 'string', description: 'The text sent back when customer picks this choice.' },
+          },
+          required: ['label', 'value'],
+        },
+      },
+    },
+    required: ['kind'],
+  },
+  async execute(input, ctx) {
+    const kind = String(input.kind ?? '') as 'product_grid' | 'choice_picker'
+
+    if (kind === 'product_grid') {
+      const ids = Array.isArray(input.product_ids) ? input.product_ids.map(String).slice(0, 4) : []
+      if (ids.length === 0) return { error: 'product_ids required for product_grid' }
+      const products = await getProductsByIds(ids)
+      if (products.length === 0) return { error: 'no products matched ids', requested: ids }
+      const headline = typeof input.headline === 'string' ? input.headline : undefined
+      ctx.emit({
+        event: 'block',
+        data: {
+          id: (globalThis.crypto as Crypto).randomUUID(),
+          type: 'artifact',
+          data: { kind: 'product_grid', headline, products },
+        },
+      })
+      return { ok: true, shown: products.length }
+    }
+
+    if (kind === 'choice_picker') {
+      const question = typeof input.question === 'string' ? input.question : ''
+      const rawChoices = Array.isArray(input.choices) ? input.choices : []
+      if (rawChoices.length < 2) return { error: 'choice_picker requires at least 2 choices' }
+      const choices = rawChoices.slice(0, 4).map((c: Record<string, unknown>) => ({
+        label: String(c.label ?? ''),
+        description: typeof c.description === 'string' ? c.description : undefined,
+        image_url: typeof c.image_url === 'string' && /^https:\/\//.test(c.image_url) ? c.image_url : undefined,
+        value: String(c.value ?? c.label ?? ''),
+      }))
+      const headline = typeof input.headline === 'string' ? input.headline : undefined
+      ctx.emit({
+        event: 'block',
+        data: {
+          id: (globalThis.crypto as Crypto).randomUUID(),
+          type: 'artifact',
+          data: { kind: 'choice_picker', headline, question, choices },
+        },
+      })
+      return { ok: true }
+    }
+
+    return { error: `unknown artifact kind: ${kind}` }
+  },
+}
+
+// --- show_products (kept for in-flight sessions — not in TOOL_DEFINITIONS) --
 
 const showProductsTool: ToolDef = {
   name: 'show_products',
-  description:
-    'Render product cards for the customer. Pick 3-4 best matches from prior search results. Pass the product ids; the system rehydrates from the database (so you cannot fabricate cards). Optionally add a short headline.',
+  description: 'Legacy — not exposed to agent. Kept so in-flight sessions that call show_products still resolve.',
   input_schema: {
     type: 'object',
     properties: {
       product_ids: { type: 'array', items: { type: 'string' } },
-      headline: { type: 'string', description: 'Optional one-line caption above the strip, e.g. "Three picks under $30:".' },
+      headline: { type: 'string' },
     },
     required: ['product_ids'],
   },
   async execute(input, ctx) {
-    const ids = Array.isArray(input.product_ids) ? input.product_ids.map(String) : []
+    const ids = Array.isArray(input.product_ids) ? input.product_ids.map(String).slice(0, 4) : []
     if (ids.length === 0) return { error: 'product_ids required' }
     const products = await getProductsByIds(ids)
     if (products.length === 0) return { error: 'no products matched ids', requested: ids }
@@ -267,8 +350,8 @@ const showProductsTool: ToolDef = {
       event: 'block',
       data: {
         id: (globalThis.crypto as Crypto).randomUUID(),
-        type: 'product_strip',
-        data: { headline, products },
+        type: 'artifact',
+        data: { kind: 'product_grid', headline, products },
       },
     })
     return { ok: true, shown: products.length }
@@ -327,20 +410,25 @@ const askQuestionTool: ToolDef = {
 
 // --- registry ---------------------------------------------------------------
 
-const ALL_TOOLS: ToolDef[] = [
+// Tools exposed to the agent via TOOL_DEFINITIONS
+const AGENT_TOOLS: ToolDef[] = [
   planTool,
   recallCustomerContextTool,
   searchProductsTool,
   searchShopsTool,
   getProductDetailsTool,
   getShopDetailsTool,
-  showProductsTool,
+  buildArtifactTool,
   showShopTool,
   askQuestionTool,
   recordPreferenceTool,
 ]
 
-export const TOOL_DEFINITIONS = ALL_TOOLS.map(t => ({
+// showProductsTool is excluded from AGENT_TOOLS (agent never sees it) but kept
+// in ALL_TOOLS so in-flight sessions that call show_products still resolve.
+const ALL_TOOLS: ToolDef[] = [...AGENT_TOOLS, showProductsTool]
+
+export const TOOL_DEFINITIONS = AGENT_TOOLS.map(t => ({
   name: t.name,
   description: t.description,
   input_schema: t.input_schema,

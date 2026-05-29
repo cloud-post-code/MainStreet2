@@ -30,6 +30,27 @@ async function main() {
   }
 
   console.log(`Admin user created/updated: ${email} (id: ${data.id})`)
+
+  // Default dev account — development only
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('Skipping default dev admin seed in production.')
+  } else {
+    const devHash = await bcrypt.hash('admin123', 12)
+    const { error: devError } = await db
+      .from('admin_users')
+      .upsert(
+        { email: 'admin@admin.com', password_hash: devHash, name: 'Admin' },
+        { onConflict: 'email' }
+      )
+      .select('id')
+      .single()
+    if (devError) {
+      console.error('Failed to seed default dev admin:', devError.message)
+    } else {
+      console.log('Default dev admin ensured: admin@admin.com / admin123')
+    }
+  }
+
   console.log(`Login at http://localhost:3000/admin/login`)
 }
 

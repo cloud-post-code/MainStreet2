@@ -2,11 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.2.0] - 2026-05-28
+## [0.2.2.0] - 2026-05-29
 
 ### Added
-- **Admin Users section.** New `/admin/users` page lists all registered shopper accounts — name, email, and sign-up date — with live search filtering. Accessible from the admin sidebar alongside Companies, Products, and Scraper.
-- **Default dev admin account.** Running `scripts/seed-admin.ts` now also seeds `admin@admin.com` / `admin123` for zero-friction local login, alongside the existing env-var-driven admin account.
+- **Inbox strip on chat page.** A collapsible preview strip now appears between the header and chat area on the main page, showing up to 4 inbox threads with subject, snippet, and unread badge. Clicking any card navigates to the full inbox. Hidden when empty.
+- **Mason artifact tool.** Mason can now build rich UI cards mid-conversation: `product_grid` (1–4 curated product cards) and `choice_picker` (visual multiple-choice with images). Replaces the old `show_products` tool, which is kept for in-flight session backward compatibility.
+- **Admin Users section.** New `/admin/users` page lists all registered shopper accounts — name, email, and sign-up date — with live search filtering. Accessible from the admin sidebar.
+- **Default dev admin account.** Running `scripts/seed-admin.ts` seeds `admin@admin.com` / `admin123` for local development (skipped in production).
+
+### Fixed
+- **Admin API role enforcement.** All admin routes and the admin GSSP gate now assert `role === 'admin'` — previously any authenticated shopper session could access admin endpoints.
+- **Inbox strip fetch gated on authentication.** The inbox fetch no longer fires for unauthenticated visitors, preventing unnecessary DB load from bots and crawlers.
+- **LLM image URL validation.** Artifact tool now strips any `image_url` that isn't an `https://` URL before emitting to the frontend.
 
 ## [0.2.1.0] - 2026-05-28
 
